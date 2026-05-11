@@ -223,7 +223,6 @@ typedef struct {
 #define GET_PRIVATE(o) ev_window_get_instance_private (o)
 
 #define EV_WINDOW_IS_PRESENTATION(priv) (priv->presentation_view != NULL)
-
 #define GS_LOCKDOWN_SCHEMA_NAME  "org.gnome.desktop.lockdown"
 #define GS_LOCKDOWN_SAVE         "disable-save-to-disk"
 #define GS_LOCKDOWN_PRINT        "disable-printing"
@@ -1645,6 +1644,17 @@ ev_window_set_document_metadata (EvWindow *window)
 }
 
 static void
+ev_window_clear_document (EvWindow *ev_window)
+{
+	EvWindowPrivate *priv = GET_PRIVATE (ev_window);
+
+	if (!priv->document)
+		return;
+
+	g_clear_object (&priv->document);
+}
+
+static void
 ev_window_set_document (EvWindow *ev_window, EvDocument *document)
 {
 	EvWindowPrivate *priv = GET_PRIVATE (ev_window);
@@ -1652,8 +1662,7 @@ ev_window_set_document (EvWindow *ev_window, EvDocument *document)
 	if (priv->document == document)
 		return;
 
-	if (priv->document)
-		g_object_unref (priv->document);
+	ev_window_clear_document (ev_window);
 	priv->document = g_object_ref (document);
 
 	ev_window_set_message_area (ev_window, NULL);
@@ -5915,7 +5924,7 @@ ev_window_dispose (GObject *object)
 		g_clear_object (&priv->default_settings);
 	}
 	g_clear_object (&priv->lockdown_settings);
-	g_clear_object (&priv->document);
+	ev_window_clear_document (window);
 	g_clear_object (&priv->view);
 	g_clear_object (&priv->password_view);
 
