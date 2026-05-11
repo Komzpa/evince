@@ -2443,7 +2443,10 @@ ev_view_get_focused_area (EvView       *view,
 			  GdkRectangle *area)
 {
 	EvViewPrivate *priv = GET_PRIVATE (view);
-	if (!priv->focused_element)
+	if (!priv->focused_element ||
+	    !priv->document ||
+	    !priv->page_cache ||
+	    priv->focused_element_page >= ev_document_get_n_pages (priv->document))
 		return FALSE;
 
 	_ev_view_transform_doc_rect_to_view_rect (view,
@@ -2456,6 +2459,15 @@ ev_view_get_focused_area (EvView       *view,
 	area->height += 1;
 
 	return TRUE;
+}
+
+static void
+ev_view_clear_focused_element (EvView *view)
+{
+	EvViewPrivate *priv = GET_PRIVATE (view);
+
+	priv->focused_element = NULL;
+	priv->focused_element_page = -1;
 }
 
 void
@@ -7037,7 +7049,7 @@ static void
 ev_view_activate (EvView *view)
 {
 	EvViewPrivate *priv = GET_PRIVATE (view);
-	if (!priv->focused_element)
+	if (!priv->focused_element || !priv->focused_element->data)
 		return;
 
 	if (EV_IS_DOCUMENT_FORMS (priv->document) &&
@@ -8383,6 +8395,9 @@ static void
 clear_caches (EvView *view)
 {
 	EvViewPrivate *priv = GET_PRIVATE (view);
+
+	ev_view_clear_focused_element (view);
+
 	g_clear_object (&priv->pixbuf_cache);
 	g_clear_object (&priv->page_cache);
 }
