@@ -227,6 +227,8 @@ activate_cb (EvPageActionWidget *action_widget)
 	gchar *new_text;
 	gint current_page;
 	gboolean has_sidebar_links;
+	gint page;
+	gboolean has_page_label;
 
 	model = action_widget->doc_model;
 	current_page = ev_document_model_get_page (model);
@@ -244,8 +246,9 @@ activate_cb (EvPageActionWidget *action_widget)
 
 	has_sidebar_links = EV_IS_DOCUMENT_LINKS (action_widget->document) &&
 		ev_document_links_has_document_links (EV_DOCUMENT_LINKS (action_widget->document));
+	has_page_label = ev_document_find_page_by_label (action_widget->document, text, &page);
 
-	if (has_sidebar_links && !is_roman_numeral_or_number (text)) {
+	if (has_sidebar_links && !has_page_label && !is_roman_numeral_or_number (text)) {
 		/* Change to search-outline mode */
 		ev_page_action_widget_set_temporary_entry_width (action_widget, 15);
 		ev_page_action_widget_enable_completion_search (action_widget, TRUE);
