@@ -233,6 +233,15 @@ fragment_extract_key (const gchar *fragment,
 	return FALSE;
 }
 
+static GFile *
+get_file_from_commandline_arg (const gchar *filename)
+{
+	if (g_file_test (filename, G_FILE_TEST_EXISTS))
+		return g_file_new_for_path (filename);
+
+	return g_file_new_for_commandline_arg (filename);
+}
+
 static void
 load_files (const char **files)
 {
@@ -285,7 +294,7 @@ load_files (const char **files)
 		} else if (global_dest)
 			dest = g_object_ref (global_dest);
 
-		file = g_file_new_for_commandline_arg (filename);
+		file = get_file_from_commandline_arg (filename);
 		uri = g_file_get_uri (file);
 		g_object_unref (file);
 
