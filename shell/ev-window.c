@@ -955,6 +955,43 @@ scrolled_window_focus_in_cb (GtkEventControllerFocus    *self,
 	return GDK_EVENT_STOP;
 }
 
+static gboolean
+zoom_action_key_pressed_cb (GtkEventControllerKey *self,
+			    guint                  keyval,
+			    guint                  keycode,
+			    GdkModifierType        state,
+			    EvWindow              *window)
+{
+	EvWindowPrivate *priv = GET_PRIVATE (window);
+	GtkWidget       *focus;
+	GtkScrollType    scroll;
+
+	if ((state & gtk_accelerator_get_default_mod_mask ()) != 0)
+		return GDK_EVENT_PROPAGATE;
+
+	focus = gtk_root_get_focus (GTK_ROOT (window));
+	if (!focus || !gtk_widget_get_ancestor (focus, EV_TYPE_ZOOM_ACTION))
+		return GDK_EVENT_PROPAGATE;
+
+	switch (keyval) {
+	case GDK_KEY_Up:
+	case GDK_KEY_KP_Up:
+		scroll = GTK_SCROLL_STEP_BACKWARD;
+		break;
+	case GDK_KEY_Down:
+	case GDK_KEY_KP_Down:
+		scroll = GTK_SCROLL_STEP_FORWARD;
+		break;
+	default:
+		return GDK_EVENT_PROPAGATE;
+	}
+
+	ev_window_focus_view (window);
+	g_signal_emit_by_name (priv->view, "scroll", scroll, GTK_ORIENTATION_VERTICAL);
+
+	return GDK_EVENT_STOP;
+}
+
 static void
 view_selection_changed_cb (EvView   *view,
 			   EvWindow *window)
@@ -7219,6 +7256,7 @@ ev_window_class_init (EvWindowClass *ev_window_class)
 	gtk_widget_class_bind_template_callback (widget_class, ev_window_button_pressed);
 	gtk_widget_class_bind_template_callback (widget_class, ev_window_drag_data_received);
 	gtk_widget_class_bind_template_callback (widget_class, view_popup_hide_cb);
+	gtk_widget_class_bind_template_callback (widget_class, zoom_action_key_pressed_cb);
 
 	/* search box */
 	gtk_widget_class_bind_template_callback (widget_class, search_started_cb);
