@@ -275,18 +275,21 @@ main (int argc, char *argv[])
                 return -1;
 
 	file = g_file_new_for_commandline_arg (input);
+
+	if (time_limit)
+		time_monitor_start (input);
+
 	document = evince_thumbnailer_get_document (file);
 	g_object_unref (file);
 
 	if (!document) {
+		time_monitor_stop ();
 		ev_shutdown ();
 		return -2;
 	}
 
-        if (time_limit)
-                time_monitor_start (input);
-
 	if (!evince_thumbnail_pngenc_get (document, output, size)) {
+		time_monitor_stop ();
 		g_object_unref (document);
 		ev_shutdown ();
 		return -2;
