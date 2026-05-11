@@ -5642,7 +5642,10 @@ ev_view_button_press_event (GtkGestureClick	*gesture,
 			ev_view_set_focused_element_at_location (view, x, y);
 			return;
 		case GDK_BUTTON_SECONDARY:
+			priv->scroll_info.start_x = x;
 			priv->scroll_info.start_y = y;
+			priv->scroll_info.last_x = x;
+			priv->scroll_info.last_y = y;
 			ev_view_set_focused_element_at_location (view, x, y);
 			ev_view_do_popup_menu (view, x, y);
 	}
@@ -5942,8 +5945,10 @@ ev_view_motion_notify_event (GtkEventControllerMotion	*self,
 		return;
 
 	if (priv->scroll_info.autoscrolling) {
-		if (y >= 0)
+		if (x >= 0 && y >= 0) {
+			priv->scroll_info.last_x = x;
 			priv->scroll_info.last_y = y;
+		}
 		return;
 	}
 
@@ -7069,7 +7074,7 @@ static gboolean
 ev_view_autoscroll_cb (EvView *view)
 {
 	EvViewPrivate *priv = GET_PRIVATE (view);
-	gdouble speed, value;
+	gdouble x_speed, y_speed, value;
 
 	/* If the user stops autoscrolling, autoscrolling will be
 	 * set to false but the timeout will continue; stop the timeout: */
@@ -7083,13 +7088,26 @@ ev_view_autoscroll_cb (EvView *view)
 	 * 	based on the distance of the starting point from the mouse
 	 * (All also effected by the timeout interval of this callback) */
 
-	if (priv->scroll_info.start_y > priv->scroll_info.last_y)
-		speed = -pow ((((gdouble)priv->scroll_info.start_y - priv->scroll_info.last_y) / 100), 3);
+	if (priv->scroll_info.start_x > priv->scroll_info.last_x)
+		x_speed = -pow ((((gdouble)priv->scroll_info.start_x - priv->scroll_info.last_x) / 100), 3);
 	else
-		speed = pow ((((gdouble)priv->scroll_info.last_y - priv->scroll_info.start_y) / 100), 3);
+		x_speed = pow ((((gdouble)priv->scroll_info.last_x - priv->scroll_info.start_x) / 100), 3);
+
+	if (priv->scroll_info.start_y > priv->scroll_info.last_y)
+		y_speed = -pow ((((gdouble)priv->scroll_info.start_y - priv->scroll_info.last_y) / 100), 3);
+	else
+		y_speed = pow ((((gdouble)priv->scroll_info.last_y - priv->scroll_info.start_y) / 100), 3);
+
+	value = gtk_adjustment_get_value (priv->hadjustment);
+	value = CLAMP (value + x_speed,
+		       gtk_adjustment_get_lower (priv->hadjustment),
+		       gtk_adjustment_get_upper (priv->hadjustment) -
+		       gtk_adjustment_get_page_size (priv->hadjustment));
+	gtk_adjustment_set_value (priv->hadjustment, value);
 
 	value = gtk_adjustment_get_value (priv->vadjustment);
-	value = CLAMP (value + speed, 0,
+	value = CLAMP (value + y_speed,
+		       gtk_adjustment_get_lower (priv->vadjustment),
 		       gtk_adjustment_get_upper (priv->vadjustment) -
 		       gtk_adjustment_get_page_size (priv->vadjustment));
 	gtk_adjustment_set_value (priv->vadjustment, value);

@@ -59,7 +59,9 @@ typedef struct {
 /* Autoscrolling */
 typedef struct {
 	gboolean autoscrolling;
+	guint last_x;
 	guint last_y;
+	guint start_x;
 	guint start_y;
 	guint timeout_id;
 } AutoScrollInfo;
