@@ -51,6 +51,12 @@ static const GOptionEntry goption_options[] = {
 	{ NULL }
 };
 
+static int
+thumbnailer_timeout_exit_status (void)
+{
+	return EXIT_FAILURE;
+}
+
 /* Time monitor: copied from totem */
 G_GNUC_NORETURN static gpointer
 time_monitor (gpointer data)
@@ -70,7 +76,7 @@ time_monitor (gpointer data)
                     app_name,
                     (const char *) data);
 
-        exit (0);
+        exit (thumbnailer_timeout_exit_status ());
 }
 
 static void
@@ -275,18 +281,21 @@ main (int argc, char *argv[])
                 return -1;
 
 	file = g_file_new_for_commandline_arg (input);
+
+	if (time_limit)
+		time_monitor_start (input);
+
 	document = evince_thumbnailer_get_document (file);
 	g_object_unref (file);
 
 	if (!document) {
+		time_monitor_stop ();
 		ev_shutdown ();
 		return -2;
 	}
 
-        if (time_limit)
-                time_monitor_start (input);
-
 	if (!evince_thumbnail_pngenc_get (document, output, size)) {
+		time_monitor_stop ();
 		g_object_unref (document);
 		ev_shutdown ();
 		return -2;
