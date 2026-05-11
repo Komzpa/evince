@@ -3842,6 +3842,7 @@ ev_view_cancel_add_annotation (EvView *view)
 	g_assert(!priv->adding_annot_info.annot);
 	ev_document_misc_get_pointer_position (GTK_WIDGET (view), &x, &y);
 	ev_view_handle_cursor_over_xy (view, x, y, FALSE);
+	g_signal_emit (view, signals[SIGNAL_ANNOT_CANCEL_ADD], 0, NULL);
 }
 
 void
