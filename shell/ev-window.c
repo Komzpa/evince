@@ -6292,6 +6292,7 @@ launch_external_uri (EvWindow *window, EvLinkAction *action)
 	GdkDisplay *display;
 	GFile *file;
 	gchar *uri_scheme;
+	GAppInfo *app_info = NULL;
 
 	display = gtk_widget_get_display (GTK_WIDGET (window));
 	context = gdk_display_get_app_launch_context (display);
@@ -6324,6 +6325,14 @@ launch_external_uri (EvWindow *window, EvLinkAction *action)
 		}
 		ret = g_app_info_launch_default_for_uri (new_uri, G_APP_LAUNCH_CONTEXT (context), &error);
 		g_free (new_uri);
+	} else if (g_strcmp0 (uri_scheme, "mailto") == 0 &&
+		   (app_info = g_app_info_get_default_for_uri_scheme (uri_scheme)) != NULL) {
+		GList uri_list = { 0 };
+
+		uri_list.data = (gpointer) uri;
+		ret = g_app_info_launch_uris (app_info, &uri_list,
+					      G_APP_LAUNCH_CONTEXT (context),
+					      &error);
 	} else {
 		ret = g_app_info_launch_default_for_uri (uri, G_APP_LAUNCH_CONTEXT (context), &error);
 	}
@@ -6334,6 +6343,8 @@ launch_external_uri (EvWindow *window, EvLinkAction *action)
 		g_error_free (error);
 	}
 
+	g_clear_object (&app_info);
+	g_free (uri_scheme);
         g_object_unref (context);
 }
 
