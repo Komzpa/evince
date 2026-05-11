@@ -139,3 +139,14 @@ if enable_introspection
     install: true,
   )
 endif
+
+test_name = 'test-ev-view'
+
+test_ev_view = executable(
+  test_name,
+  'test-ev-view.c',
+  include_directories: top_inc,
+  dependencies: libevview_dep,
+)
+
+test(test_name, test_ev_view)

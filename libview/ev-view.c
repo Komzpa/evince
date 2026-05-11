@@ -4453,9 +4453,10 @@ ev_view_scroll_event (GtkEventControllerScroll *self, gdouble dx, gdouble dy, Gt
 	state = gtk_event_controller_get_current_event_state (GTK_EVENT_CONTROLLER (self))
 			 & gtk_accelerator_get_default_mod_mask ();
 	direction = gdk_scroll_event_get_direction (event);
-	gdk_event_get_axis (GDK_EVENT (event), GDK_AXIS_X, &x);
-	gdk_event_get_axis (GDK_EVENT (event), GDK_AXIS_Y, &y);
-
+	if (!gdk_event_get_position (event, &x, &y)) {
+		x = gtk_widget_get_width (widget) / 2.0;
+		y = gtk_widget_get_height (widget) / 2.0;
+	}
 
 	if (state == GDK_CONTROL_MASK) {
 		ev_document_model_set_sizing_mode (priv->model, EV_SIZING_FREE);
@@ -7906,7 +7907,6 @@ ev_view_class_init (EvViewClass *class)
 	gtk_widget_class_bind_template_callback (widget_class, middle_clicked_drag_begin_cb);
 	gtk_widget_class_bind_template_callback (widget_class, middle_clicked_drag_end_cb);
 	gtk_widget_class_bind_template_callback (widget_class, middle_clicked_drag_update_cb);
-	gtk_widget_class_bind_template_callback (widget_class, ev_view_scroll_event);
 	gtk_widget_class_bind_template_callback (widget_class, drag_prepare_cb);
 	gtk_widget_class_bind_template_callback (widget_class, pan_gesture_pan_cb);
 	gtk_widget_class_bind_template_callback (widget_class, pan_gesture_end_cb);
@@ -8145,6 +8145,7 @@ static void
 ev_view_init (EvView *view)
 {
 	EvViewPrivate *priv = GET_PRIVATE (view);
+	GtkEventController *scroll_controller;
 
 	priv->start_page = -1;
 	priv->end_page = -1;
@@ -8176,6 +8177,13 @@ ev_view_init (EvView *view)
 	priv->zoom_center_y = -1;
 
 	gtk_widget_init_template (GTK_WIDGET (view));
+
+	scroll_controller =
+		gtk_event_controller_scroll_new (GTK_EVENT_CONTROLLER_SCROLL_BOTH_AXES);
+	g_signal_connect (scroll_controller, "scroll",
+			  G_CALLBACK (ev_view_scroll_event),
+			  view);
+	gtk_widget_add_controller (GTK_WIDGET (view), scroll_controller);
 }
 
 /*** Callbacks ***/
