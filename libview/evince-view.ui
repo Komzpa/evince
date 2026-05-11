@@ -25,11 +25,6 @@
       </object>
     </child>
     <child>
-      <object class="GtkEventControllerScroll">
-        <signal name="scroll" handler="ev_view_scroll_event" />
-      </object>
-    </child>
-    <child>
       <object class="GtkEventControllerFocus">
         <signal name="enter" handler="ev_view_focus_in" />
         <signal name="leave" handler="ev_view_focus_out" />
