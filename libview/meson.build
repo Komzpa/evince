@@ -28,6 +28,7 @@ sources = files(
   #'ev-page-accessible.c',
   'ev-page-cache.c',
   'ev-pixbuf-cache.c',
+  'ev-print-range.c',
   'ev-print-operation.c',
   'ev-view.c',
   #'ev-view-accessible.c',
@@ -100,6 +101,16 @@ libevview_dep = declare_dependency(
   dependencies: deps,
   link_with: libevview,
 )
+
+test_print_range = executable(
+  'test-print-range',
+  ['test-print-range.c', 'ev-print-range.c'],
+  include_directories: top_inc,
+  dependencies: gtk_dep,
+  c_args: cflags,
+)
+
+test('print-range', test_print_range)
 
 pkg.generate(
   libevview,

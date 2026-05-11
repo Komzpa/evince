@@ -29,6 +29,7 @@
 
 #include "ev-jobs.h"
 #include "ev-job-scheduler.h"
+#include "ev-print-range-private.h"
 
 #if defined (G_OS_UNIX)
 #define PORTAL_ENABLED
@@ -637,61 +638,11 @@ find_range (EvPrintOperationExport *export)
 static gboolean
 clamp_ranges (EvPrintOperationExport *export)
 {
-	gint num_of_correct_ranges = 0;
-	gint n_pages_to_print = 0;
-	gint i;
-	gboolean null_flag = FALSE;
-
-	for (i = 0; i < export->n_ranges; i++) {
-		gint n_pages;
-
-		if ((export->ranges[i].start >= 0) &&
-		    (export->ranges[i].start < export->n_pages) &&
-		    (export->ranges[i].end >= 0) &&
-		    (export->ranges[i].end < export->n_pages)) {
-			export->ranges[num_of_correct_ranges] = export->ranges[i];
-			num_of_correct_ranges++;
-		} else if ((export->ranges[i].start >= 0) &&
-			   (export->ranges[i].start < export->n_pages) &&
-			   (export->ranges[i].end >= export->n_pages)) {
-			export->ranges[i].end = export->n_pages - 1;
-			export->ranges[num_of_correct_ranges] = export->ranges[i];
-			num_of_correct_ranges++;
-		} else if ((export->ranges[i].end >= 0) &&
-			   (export->ranges[i].end < export->n_pages) &&
-			   (export->ranges[i].start < 0)) {
-			export->ranges[i].start = 0;
-			export->ranges[num_of_correct_ranges] = export->ranges[i];
-			num_of_correct_ranges++;
-		}
-
-		n_pages = export->ranges[i].end - export->ranges[i].start + 1;
-		if (export->page_set == GTK_PAGE_SET_ALL) {
-			n_pages_to_print += n_pages;
-		} else if (n_pages % 2 == 0) {
-			n_pages_to_print += n_pages / 2;
-		} else if (export->page_set == GTK_PAGE_SET_EVEN) {
-			if (n_pages==1 && export->ranges[i].start % 2 == 0)
-				null_flag = TRUE;
-			else
-				n_pages_to_print += export->ranges[i].start % 2 == 0 ?
-				n_pages / 2 : (n_pages / 2) + 1;
-		} else if (export->page_set == GTK_PAGE_SET_ODD) {
-			if (n_pages==1 && export->ranges[i].start % 2 != 0)
-				null_flag = TRUE;
-			else
-				n_pages_to_print += export->ranges[i].start % 2 == 0 ?
-				(n_pages / 2) + 1 : n_pages / 2;
-		}
-	}
-
-	if (null_flag && !n_pages_to_print) {
-		return FALSE;
-	} else {
-		export->n_ranges = num_of_correct_ranges;
-		export->n_pages_to_print = n_pages_to_print;
-		return TRUE;
-	}
+	return ev_print_range_clamp (export->ranges,
+	                             &export->n_ranges,
+	                             export->n_pages,
+	                             export->page_set,
+	                             &export->n_pages_to_print);
 }
 
 static void
