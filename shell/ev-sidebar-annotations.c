@@ -267,11 +267,12 @@ job_finished_callback (EvJobAnnots          *job,
 		GtkWidget     *expander;
 
 		mapping_list = (EvMappingList *)l->data;
-		page_label = g_strdup_printf (_("Page %d"),
-					      ev_mapping_list_get_page (mapping_list) + 1);
+		page_label = ev_document_get_page_label (EV_JOB (job)->document,
+							 ev_mapping_list_get_page (mapping_list));
 
 		expander = adw_expander_row_new ();
-		adw_preferences_row_set_title (ADW_PREFERENCES_ROW (expander), page_label);
+		adw_preferences_row_set_title (ADW_PREFERENCES_ROW (expander),
+					       page_label ? page_label : "");
 		adw_expander_row_set_expanded (ADW_EXPANDER_ROW (expander), TRUE);
 		gtk_list_box_append (GTK_LIST_BOX (priv->list_box), expander);
 
