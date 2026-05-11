@@ -516,6 +516,31 @@ is_dual_page (EvView   *view,
 	return dual;
 }
 
+/*
+ * Get the page paired with a given page in dual page mode.
+ *
+ * Returns FALSE if the view is not in dual page mode.
+ */
+static gboolean
+get_dual_page_other_page (EvView   *view,
+			  gint      page,
+			  gint     *other_page_out,
+			  gboolean *odd_left_out)
+{
+	gboolean odd_left;
+
+	if (!is_dual_page (view, &odd_left))
+		return FALSE;
+
+	if (other_page_out)
+		*other_page_out = (page % 2 == !odd_left) ? page + 1 : page - 1;
+
+	if (odd_left_out)
+		*odd_left_out = odd_left;
+
+	return TRUE;
+}
+
 static void
 scroll_to_point (EvView        *view,
 		 gdouble        x,
@@ -1273,19 +1298,17 @@ real_ev_view_get_page_extents (EvView       *view,
 	} else {
 		gint x, y;
 		gboolean odd_left;
+		gint other_page;
 
-		if (is_dual_page (view, &odd_left)) {
+		if (get_dual_page_other_page (view, page, &other_page, &odd_left)) {
 			gint width_2, height_2;
 			gint max_width = width;
 			gint max_height = height;
 			GtkBorder overall_border;
-			gint other_page;
-
-			other_page = (page % 2 == !odd_left) ? page + 1: page - 1;
 
 			/* First, we get the bounding box of the two pages */
-			if (other_page < ev_document_get_n_pages (priv->document)
-			    && (0 <= other_page)) {
+			if (0 <= other_page
+			    && other_page < ev_document_get_n_pages (priv->document)) {
 				ev_view_get_page_size (view, other_page,
 						       &width_2, &height_2);
 				if (width_2 > width)
@@ -8967,11 +8990,10 @@ ev_view_zoom_for_size_dual_page (EvView *view,
 	gint other_page;
 	EvViewPrivate *priv = GET_PRIVATE (view);
 
-	other_page = priv->current_page ^ 1;
-
 	/* Find the largest of the two. */
 	get_doc_page_size (view, priv->current_page, &doc_width, &doc_height);
-	if (other_page < ev_document_get_n_pages (priv->document)) {
+	if (get_dual_page_other_page (view, priv->current_page, &other_page, NULL) &&
+	    other_page >= 0 && other_page < ev_document_get_n_pages (priv->document)) {
 		gdouble width_2, height_2;
 
 		get_doc_page_size (view, other_page, &width_2, &height_2);
