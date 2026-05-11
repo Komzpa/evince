@@ -24,3 +24,14 @@ thumbnailer = executable(
   link_args: common_ldflags,
   install: true,
 )
+
+test_name = 'test-thumbnailer-watchdog'
+
+test_thumbnailer_watchdog = executable(
+  test_name,
+  'test-thumbnailer-watchdog.c',
+  include_directories: top_inc,
+  dependencies: thumbnailer_deps,
+)
+
+test(test_name, test_thumbnailer_watchdog)
