@@ -4470,6 +4470,7 @@ ev_window_run_fullscreen (EvWindow *window)
 	if (fullscreen_window && gtk_window_is_fullscreen (GTK_WINDOW (window)))
 		return;
 
+	ev_toolbar_action_menu_close (EV_TOOLBAR (priv->toolbar));
 	ev_window_update_fullscreen_action (window, TRUE);
 
 	adw_header_bar_set_show_end_title_buttons (ev_toolbar_get_header_bar (EV_TOOLBAR (priv->toolbar)), FALSE);
@@ -4572,6 +4573,7 @@ ev_window_run_presentation (EvWindow *window)
 	if (EV_WINDOW_IS_PRESENTATION (priv))
 		return;
 
+	ev_toolbar_action_menu_close (EV_TOOLBAR (priv->toolbar));
 	ev_window_close_find_bar (window);
 
 	/* We do not want to show the annotation toolbar during

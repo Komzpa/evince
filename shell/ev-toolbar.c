@@ -170,6 +170,16 @@ ev_toolbar_new (void)
 }
 
 void
+ev_toolbar_action_menu_close (EvToolbar *ev_toolbar)
+{
+	EvToolbarPrivate *priv = GET_PRIVATE (ev_toolbar);
+
+	g_return_if_fail (EV_IS_TOOLBAR (ev_toolbar));
+
+	gtk_menu_button_set_active (GTK_MENU_BUTTON (priv->action_menu_button), FALSE);
+}
+
+void
 ev_toolbar_action_menu_toggle (EvToolbar *ev_toolbar)
 {
 	EvToolbarPrivate *priv = GET_PRIVATE (ev_toolbar);
