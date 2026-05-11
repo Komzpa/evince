@@ -6801,6 +6801,39 @@ cursor_clear_selection (EvView  *view,
 }
 
 static gboolean
+ev_view_scroll_to_current_page_edge (EvView   *view,
+				     gboolean  bottom)
+{
+	EvViewPrivate *priv = GET_PRIVATE (view);
+	GtkAdjustment *adjustment = priv->vadjustment;
+	GdkRectangle   page_area;
+	GtkBorder      border;
+	gdouble        value;
+	gdouble        lower;
+	gdouble        upper;
+	gdouble        page_size;
+
+	if (!priv->document || priv->current_page < 0 || !adjustment)
+		return FALSE;
+
+	if (!ev_view_get_page_extents (view, priv->current_page, &page_area, &border))
+		return FALSE;
+
+	lower = gtk_adjustment_get_lower (adjustment);
+	upper = gtk_adjustment_get_upper (adjustment);
+	page_size = gtk_adjustment_get_page_size (adjustment);
+
+	if (bottom)
+		value = page_area.y + page_area.height - page_size;
+	else
+		value = page_area.y;
+
+	gtk_adjustment_set_value (adjustment, CLAMP (value, lower, upper - page_size));
+
+	return TRUE;
+}
+
+static gboolean
 ev_view_move_cursor (EvView         *view,
 		     GtkMovementStep step,
 		     gint            count,
@@ -6818,7 +6851,14 @@ ev_view_move_cursor (EvView         *view,
 	const gboolean  forward = count >= 0;
 	EvViewPrivate *priv = GET_PRIVATE (view);
 
-	if (!priv->caret_enabled || priv->rotation != 0)
+	if (!priv->caret_enabled) {
+		if (step == GTK_MOVEMENT_DISPLAY_LINE_ENDS)
+			return ev_view_scroll_to_current_page_edge (view, forward);
+
+		return FALSE;
+	}
+
+	if (priv->rotation != 0)
 		return FALSE;
 
 	priv->key_binding_handled = TRUE;
