@@ -291,6 +291,15 @@ ev_previewer_window_set_action_enabled (EvPreviewerWindow *window,
 	g_simple_action_set_enabled (G_SIMPLE_ACTION (action), enabled);
 }
 
+#if GTKUNIXPRINT_ENABLED
+static void
+ev_previewer_window_set_print_enabled (EvPreviewerWindow *window,
+				       gboolean           enabled)
+{
+	ev_previewer_window_set_action_enabled (window, "print", enabled);
+}
+#endif
+
 static void
 model_page_changed (EvDocumentModel* model,
 		    gint old_page,
@@ -377,6 +386,9 @@ ev_previewer_window_init (EvPreviewerWindow *window)
 	g_action_map_add_action_entries (G_ACTION_MAP (window),
 					 actions, G_N_ELEMENTS (actions),
 					 window);
+#if GTKUNIXPRINT_ENABLED
+	ev_previewer_window_set_print_enabled (window, FALSE);
+#endif
 }
 
 static void
@@ -468,6 +480,9 @@ ev_previewer_window_set_print_settings_take_file (EvPreviewerWindow *window,
         g_clear_object (&window->print_settings);
         g_clear_object (&window->print_page_setup);
         g_clear_pointer (&window->print_job_title, g_free);
+#if GTKUNIXPRINT_ENABLED
+	ev_previewer_window_set_print_enabled (window, FALSE);
+#endif
 
         bytes = g_mapped_file_get_bytes (file);
         key_file = g_key_file_new ();
@@ -504,6 +519,10 @@ ev_previewer_window_set_print_settings_take_file (EvPreviewerWindow *window,
         }
 
         g_key_file_free (key_file);
+
+#if GTKUNIXPRINT_ENABLED
+	ev_previewer_window_set_print_enabled (window, TRUE);
+#endif
 
         return TRUE;
 }
