@@ -3192,19 +3192,26 @@ ev_window_cmd_open_containing_folder (GSimpleAction *action,
 	GdkAppLaunchContext *context;
 	GdkDisplay *display;
 	GFile *file;
+	GFile *folder;
 	GList list;
 	GError *error = NULL;
 
-	app =  g_app_info_get_default_for_type ("inode/directory", FALSE);
 	file = g_file_new_for_uri (priv->uri);
 	if (!g_file_is_native (file)) {
 		g_object_unref (file);
 		file = g_file_new_for_uri (ev_document_get_uri (priv->document));
 	}
+
+	folder = g_file_get_parent (file);
+	if (folder == NULL)
+		folder = g_object_ref (file);
+
+	app = g_app_info_get_default_for_type ("inode/directory", FALSE);
 	if (app == NULL) {
 		dzl_file_manager_show (file, &error);
-		if (error) {
+		if (error != NULL) {
 			gchar *uri;
+
 			uri = g_file_get_uri (file);
 			g_warning ("Could not show containing folder for \"%s\": %s",
 				   uri, error->message);
@@ -3212,13 +3219,13 @@ ev_window_cmd_open_containing_folder (GSimpleAction *action,
 			g_error_free (error);
 			g_free (uri);
 		}
+		g_object_unref (folder);
 		g_object_unref (file);
 		return;
 	}
 
-
 	list.next = list.prev = NULL;
-	list.data = file;
+	list.data = folder;
 
 	display = gtk_widget_get_display (GTK_WIDGET (window));
 
@@ -3231,7 +3238,7 @@ ev_window_cmd_open_containing_folder (GSimpleAction *action,
 	if (error != NULL) {
 		gchar *uri;
 
-		uri = g_file_get_uri (file);
+		uri = g_file_get_uri (folder);
 		g_warning ("Could not show containing folder for \"%s\": %s",
 			   uri, error->message);
 
@@ -3241,6 +3248,8 @@ ev_window_cmd_open_containing_folder (GSimpleAction *action,
 
 	g_object_unref (context);
 	g_object_unref (app);
+	g_object_unref (folder);
+	g_object_unref (file);
 }
 
 static GKeyFile *
