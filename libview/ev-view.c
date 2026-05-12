@@ -163,6 +163,7 @@ static EvMedia     *ev_view_get_media_at_location            (EvView            
 							      gdouble             y);
 static gboolean     ev_view_find_player_for_media            (EvView             *view,
 							      EvMedia            *media);
+static void          ev_view_remove_media_players_outside_range (EvView          *view);
 /*** Annotations ***/
 static GtkWidget    *get_window_for_annot 		     (EvView 		 *view,
 							      EvAnnotation	 *annot);
@@ -796,6 +797,8 @@ view_update_range_and_current_page (EvView *view)
 
 	if (priv->start_page == -1 || priv->end_page == -1)
 		return;
+
+	ev_view_remove_media_players_outside_range (view);
 
 	if (start < priv->start_page || end > priv->end_page) {
 		gint i;
@@ -3156,6 +3159,25 @@ ev_view_find_player_for_media (EvView  *view,
 	}
 
 	return FALSE;
+}
+
+static void
+ev_view_remove_media_players_outside_range (EvView *view)
+{
+	EvViewPrivate *priv = GET_PRIVATE (view);
+	GtkWidget     *child;
+
+	child = gtk_widget_get_first_child (GTK_WIDGET (view));
+	while (child != NULL) {
+		GtkWidget   *next = gtk_widget_get_next_sibling (child);
+		EvViewChild *data = g_object_get_data (G_OBJECT (child), "ev-child");
+
+		if (GTK_IS_VIDEO (child) && data != NULL &&
+		    (data->page < priv->start_page || data->page > priv->end_page))
+			gtk_widget_unparent (child);
+
+		child = next;
+	}
 }
 
 static void
