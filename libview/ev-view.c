@@ -3356,6 +3356,28 @@ ev_view_create_annotation_window (EvView       *view,
 	return window;
 }
 
+static gboolean
+ev_view_annotation_mapping_is_visible (EvView    *view,
+				       gint       page,
+				       EvMapping *mapping)
+{
+	EvViewPrivate *priv = GET_PRIVATE (view);
+	GdkRectangle view_rect;
+	GdkRectangle visible_rect;
+	GdkRectangle unused;
+
+	_ev_view_transform_doc_rect_to_view_rect (view, page, &mapping->area, &view_rect);
+	view_rect.x -= priv->scroll_x;
+	view_rect.y -= priv->scroll_y;
+
+	visible_rect.x = 0;
+	visible_rect.y = 0;
+	visible_rect.width = gtk_widget_get_width (GTK_WIDGET (view));
+	visible_rect.height = gtk_widget_get_height (GTK_WIDGET (view));
+
+	return gdk_rectangle_intersect (&view_rect, &visible_rect, &unused);
+}
+
 static void
 show_annotation_windows (EvView *view,
 			 gint    page)
@@ -3370,10 +3392,12 @@ show_annotation_windows (EvView *view,
 	annots = ev_page_cache_get_annot_mapping (priv->page_cache, page);
 
 	for (l = ev_mapping_list_get_list (annots); l && l->data; l = g_list_next (l)) {
+		EvMapping         *mapping;
 		EvAnnotation      *annot;
 		GtkWidget         *window;
 
-		annot = ((EvMapping *)(l->data))->data;
+		mapping = l->data;
+		annot = mapping->data;
 
 		if (!EV_IS_ANNOTATION_MARKUP (annot))
 			continue;
@@ -3385,8 +3409,13 @@ show_annotation_windows (EvView *view,
 		if (window) {
 			EvViewWindowChild *child;
 			child = ev_view_get_window_child (view, window);
-			gtk_widget_set_visible (window, child->visible);
+			gtk_widget_set_visible (window,
+						child->visible &&
+						ev_view_annotation_mapping_is_visible (view, page, mapping));
 		} else {
+			if (!ev_view_annotation_mapping_is_visible (view, page, mapping))
+				continue;
+
 			ev_view_create_annotation_window (view, annot, parent);
 		}
 	}
