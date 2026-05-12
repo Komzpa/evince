@@ -1706,6 +1706,7 @@ ev_window_clear_document (EvWindow *ev_window)
 	if (!priv->document)
 		return;
 
+	g_clear_signal_handler (&priv->modified_handler_id, priv->document);
 	g_clear_object (&priv->document);
 }
 
@@ -1753,7 +1754,7 @@ ev_window_set_document (EvWindow *ev_window, EvDocument *document)
 	}
 
 	priv->is_modified = FALSE;
-	priv->modified_handler_id = g_signal_connect (document, "notify::modified", G_CALLBACK (ev_window_document_modified_cb), ev_window);
+	priv->modified_handler_id = g_signal_connect_object (document, "notify::modified", G_CALLBACK (ev_window_document_modified_cb), ev_window, 0);
 
 	g_clear_handle_id (&priv->setup_document_idle, g_source_remove);
 
@@ -4140,13 +4141,13 @@ ev_window_close (EvWindow *ev_window)
 		ev_document_model_set_page (priv->model, current_page);
 	}
 
-	g_clear_signal_handler (&priv->modified_handler_id, priv->document);
-
 	if (ev_window_check_document_modified (ev_window, EV_WINDOW_ACTION_CLOSE))
 		return FALSE;
 
 	if (ev_window_check_print_queue (ev_window))
 		return FALSE;
+
+	g_clear_signal_handler (&priv->modified_handler_id, priv->document);
 
 	if (!ev_window_is_recent_view (ev_window))
 		ev_window_save_settings (ev_window);
