@@ -41,6 +41,7 @@
 
 #include "ev-poppler.h"
 #include "ev-file-exporter.h"
+#include "ev-file-exporter-private.h"
 #include "ev-document-find.h"
 #include "ev-document-misc.h"
 #include "ev-document-links.h"
@@ -77,6 +78,9 @@ typedef struct {
 	gint pages_y;
 	gdouble paper_width;
 	gdouble paper_height;
+	gdouble manual_scale;
+	gboolean scale_to_paper;
+	gboolean autorotate;
 
 #ifdef HAVE_CAIRO_PRINT
 	cairo_t *cr;
@@ -1620,6 +1624,10 @@ pdf_document_file_exporter_begin (EvFileExporter        *exporter,
 
 	ctx->paper_width = fc->paper_width;
 	ctx->paper_height = fc->paper_height;
+	ev_file_exporter_get_print_settings (exporter,
+					     &ctx->scale_to_paper,
+					     &ctx->autorotate,
+					     &ctx->manual_scale);
 
 	switch (fc->pages_per_sheet) {
 	        default:
@@ -1691,6 +1699,20 @@ pdf_document_file_exporter_begin_page (EvFileExporter *exporter)
 	ctx->pages_printed = 0;
 
 #ifdef HAVE_CAIRO_PRINT
+	if (!ctx->scale_to_paper) {
+		if (ctx->format == EV_FILE_FORMAT_PS) {
+			cairo_ps_surface_set_size (cairo_get_target (ctx->cr),
+						   ctx->paper_width,
+						   ctx->paper_height);
+		} else if (ctx->format == EV_FILE_FORMAT_PDF) {
+			cairo_pdf_surface_set_size (cairo_get_target (ctx->cr),
+						    ctx->paper_width,
+						    ctx->paper_height);
+		}
+
+		return;
+	}
+
 	if (ctx->paper_width > ctx->paper_height) {
 		if (ctx->format == EV_FILE_FORMAT_PS) {
 			cairo_ps_surface_set_size (cairo_get_target (ctx->cr),
@@ -1729,6 +1751,34 @@ pdf_document_file_exporter_do_page (EvFileExporter  *exporter,
 	x = (ctx->pages_printed % ctx->pages_per_sheet) % ctx->pages_x;
 	y = (ctx->pages_printed % ctx->pages_per_sheet) / ctx->pages_x;
 	poppler_page_get_size (poppler_page, &page_width, &page_height);
+
+	if (!ctx->scale_to_paper) {
+		gboolean page_is_landscape = page_width > page_height;
+		gboolean paper_is_landscape = ctx->paper_width > ctx->paper_height;
+
+		cairo_save (ctx->cr);
+
+		if (ctx->autorotate && page_is_landscape != paper_is_landscape) {
+			cairo_translate (ctx->cr,
+					 (ctx->paper_width - page_height * ctx->manual_scale) / 2.0 + page_height * ctx->manual_scale,
+					 (ctx->paper_height - page_width * ctx->manual_scale) / 2.0);
+			cairo_rotate (ctx->cr, G_PI_2);
+		} else if (ctx->autorotate) {
+			cairo_translate (ctx->cr,
+					 (ctx->paper_width - page_width * ctx->manual_scale) / 2.0,
+					 (ctx->paper_height - page_height * ctx->manual_scale) / 2.0);
+		}
+
+		if (ctx->manual_scale != 1.0)
+			cairo_scale (ctx->cr, ctx->manual_scale, ctx->manual_scale);
+
+		poppler_page_render_for_printing (poppler_page, ctx->cr);
+		cairo_restore (ctx->cr);
+
+		ctx->pages_printed++;
+
+		return;
+	}
 
 	if (page_width > page_height && page_width > ctx->paper_width) {
 		rotate = TRUE;
