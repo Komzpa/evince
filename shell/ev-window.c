@@ -182,6 +182,8 @@ typedef struct {
 	EvWindowTitle *title;
 	EvMetadata *metadata;
 	EvBookmarks *bookmarks;
+	gboolean document_continuous_overrides_setting;
+	gboolean applying_document_continuous_default;
 
 	/* Has the document been modified? */
 	gboolean is_modified;
@@ -1136,6 +1138,64 @@ update_document_mode (EvWindow *window, EvDocumentMode mode)
 	}
 }
 
+static gboolean
+ev_window_document_is_slide_deck (EvDocument *document)
+{
+	static const double slide_ratios[] = {
+		4.0 / 3.0,
+		16.0 / 9.0,
+		16.0 / 10.0
+	};
+	double width;
+	double height;
+	double ratio;
+	guint i;
+
+	if (!document || ev_document_get_n_pages (document) <= 0)
+		return FALSE;
+
+	ev_document_get_page_size (document, 0, &width, &height);
+	if (width <= 0 || height <= 0 || width <= height)
+		return FALSE;
+
+	ratio = width / height;
+	for (i = 0; i < G_N_ELEMENTS (slide_ratios); i++) {
+		if (fabs (ratio - slide_ratios[i]) <= 0.03)
+			return TRUE;
+	}
+
+	return FALSE;
+}
+
+static void
+ev_window_apply_document_model_defaults (EvWindow *window,
+					 EvDocument *document)
+{
+	EvWindowPrivate *priv = GET_PRIVATE (window);
+	gboolean settings_continuous;
+	gboolean continuous;
+	gboolean slide_deck;
+
+	priv->document_continuous_overrides_setting = FALSE;
+
+	if (!document)
+		return;
+
+	/* Existing metadata might be an old default or a user choice; preserve it. */
+	if (priv->metadata && ev_metadata_has_key (priv->metadata, "continuous"))
+		return;
+
+	settings_continuous = g_settings_get_boolean (priv->default_settings, "continuous");
+	slide_deck = ev_window_document_is_slide_deck (document);
+
+	continuous = slide_deck ? FALSE : settings_continuous;
+	priv->document_continuous_overrides_setting = continuous != settings_continuous;
+
+	priv->applying_document_continuous_default = TRUE;
+	ev_document_model_set_continuous (priv->model, continuous);
+	priv->applying_document_continuous_default = FALSE;
+}
+
 static void
 ev_window_init_metadata_with_default_values (EvWindow *window)
 {
@@ -1160,10 +1220,6 @@ ev_window_init_metadata_with_default_values (EvWindow *window)
 	}
 
 	/* Document model */
-	if (!ev_metadata_has_key (metadata, "continuous")) {
-		ev_metadata_set_boolean (metadata, "continuous",
-					 g_settings_get_boolean (settings, "continuous"));
-	}
 	if (!ev_metadata_has_key (metadata, "dual-page")) {
 		ev_metadata_set_boolean (metadata, "dual-page",
 					 g_settings_get_boolean (settings, "dual-page"));
@@ -1863,6 +1919,7 @@ ev_window_load_job_cb (EvJob *job,
 	/* Success! */
 	if (!ev_job_is_failed (job)) {
 		ev_document_model_set_document (priv->model, document);
+		ev_window_apply_document_model_defaults (ev_window, document);
 
 #ifdef ENABLE_DBUS
 		ev_window_emit_doc_loaded (ev_window);
@@ -2478,6 +2535,7 @@ ev_window_open_document (EvWindow       *ev_window,
 	setup_model_from_metadata (ev_window);
 
 	ev_document_model_set_document (priv->model, document);
+	ev_window_apply_document_model_defaults (ev_window, document);
 
 	setup_document_from_metadata (ev_window);
 	setup_view_from_metadata (ev_window);
@@ -4036,8 +4094,9 @@ ev_window_save_settings (EvWindow *ev_window)
 	GSettings       *settings = priv->default_settings;
 	EvSizingMode     sizing_mode;
 
-	g_settings_set_boolean (settings, "continuous",
-				ev_document_model_get_continuous (model));
+	if (!priv->document_continuous_overrides_setting)
+		g_settings_set_boolean (settings, "continuous",
+					ev_document_model_get_continuous (model));
 	g_settings_set_boolean (settings, "dual-page",
 		                ev_document_model_get_page_layout (model) == EV_PAGE_LAYOUT_DUAL);
 	g_settings_set_boolean (settings, "dual-page-odd-left",
@@ -4278,6 +4337,7 @@ ev_window_cmd_continuous (GSimpleAction *action,
 	EvWindowPrivate *priv = GET_PRIVATE (window);
 
 	ev_window_stop_presentation (window, TRUE);
+	priv->document_continuous_overrides_setting = FALSE;
 	ev_document_model_set_continuous (priv->model, g_variant_get_boolean (state));
 	g_simple_action_set_state (action, state);
 }
@@ -5200,7 +5260,9 @@ continuous_changed_cb (EvDocumentModel *model,
 	action = g_action_map_lookup_action (G_ACTION_MAP (ev_window), "continuous");
 	g_simple_action_set_state (G_SIMPLE_ACTION (action), g_variant_new_boolean (continuous));
 
-	if (priv->metadata && !ev_window_is_empty (ev_window))
+	if (priv->metadata &&
+	    !priv->applying_document_continuous_default &&
+	    !ev_window_is_empty (ev_window))
 		ev_metadata_set_boolean (priv->metadata, "continuous", continuous);
 }
 
