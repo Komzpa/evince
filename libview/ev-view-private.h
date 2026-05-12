@@ -34,6 +34,8 @@
 #include "ev-selection.h"
 #include "ev-view-cursor.h"
 
+#include <math.h>
+
 #define DRAG_HISTORY 10
 
 struct GdkPoint {
@@ -335,6 +337,33 @@ gint _ev_view_get_caret_cursor_offset_at_doc_point (EvView *view,
 						    gdouble doc_x,
 						    gdouble doc_y);
 
+#define EV_VIEW_MIN_FREE_ZOOM 4.0
+
+static inline gdouble
+ev_view_min_free_scale (gdouble dpi)
+{
+	return EV_VIEW_MIN_FREE_ZOOM * dpi;
+}
+
+static inline gdouble
+ev_view_max_scale_for_page (gsize   pixbuf_cache_size,
+			    gdouble width,
+			    gdouble height,
+			    gdouble dpi)
+{
+	gdouble cache_scale;
+
+	if (dpi <= 0)
+		dpi = 1.0;
+
+	if (width <= 0 || height <= 0)
+		return ev_view_min_free_scale (dpi);
+
+	cache_scale = sqrt (pixbuf_cache_size / (width * dpi * 4 * height * dpi)) * dpi;
+
+	return MAX (cache_scale, ev_view_min_free_scale (dpi));
+}
+
 static inline gint
 ev_view_zoom_anchor_scroll_value (gdouble anchor_view_pos,
 				  gdouble anchor_widget_pos,
@@ -345,6 +374,30 @@ ev_view_zoom_anchor_scroll_value (gdouble anchor_view_pos,
 	return CLAMP ((gint) (anchor_view_pos - anchor_widget_pos + 0.5),
 		      (gint) lower,
 		      (gint) MAX (lower, upper - page_size));
+}
+
+static inline void
+ev_view_zoom_center_for_scroll (gboolean event_has_position,
+				gdouble  event_x,
+				gdouble  event_y,
+				gboolean pointer_has_position,
+				gint     pointer_x,
+				gint     pointer_y,
+				gint     widget_width,
+				gint     widget_height,
+				gdouble *x,
+				gdouble *y)
+{
+	if (event_has_position) {
+		*x = event_x;
+		*y = event_y;
+	} else if (pointer_has_position) {
+		*x = pointer_x;
+		*y = pointer_y;
+	} else {
+		*x = widget_width / 2.0;
+		*y = widget_height / 2.0;
+	}
 }
 void _ev_view_clear_selection (EvView   *view);
 void _ev_view_set_selection   (EvView   *view,
