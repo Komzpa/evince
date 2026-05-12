@@ -179,6 +179,17 @@ pkg.generate(
   ],
 )
 
+test_ev_xmp = executable(
+  'test-ev-xmp',
+  'test-ev-xmp.c',
+  include_directories: top_inc,
+  dependencies: deps,
+  c_args: cflags,
+  link_with: libevdocument,
+)
+
+test('xmp', test_ev_xmp)
+
 # GObject Introspection
 if enable_introspection
   incs = [
