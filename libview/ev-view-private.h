@@ -255,6 +255,11 @@ typedef struct _EvViewPrivate {
 	/* Current zoom center */
 	gdouble zoom_center_x;
 	gdouble zoom_center_y;
+	gboolean zoom_anchor_valid;
+	gboolean zoom_anchor_pending_x;
+	gboolean zoom_anchor_pending_y;
+	gint zoom_anchor_page;
+	EvPoint zoom_anchor_doc_point;
 
 	/* Link preview */
 	EvLinkPreview link_preview;
@@ -327,6 +332,18 @@ gint _ev_view_get_caret_cursor_offset_at_doc_point (EvView *view,
 						    gint    page,
 						    gdouble doc_x,
 						    gdouble doc_y);
+
+static inline gint
+ev_view_zoom_anchor_scroll_value (gdouble anchor_view_pos,
+				  gdouble anchor_widget_pos,
+				  gdouble lower,
+				  gdouble upper,
+				  gdouble page_size)
+{
+	return CLAMP ((gint) (anchor_view_pos - anchor_widget_pos + 0.5),
+		      (gint) lower,
+		      (gint) MAX (lower, upper - page_size));
+}
 void _ev_view_clear_selection (EvView   *view);
 void _ev_view_set_selection   (EvView   *view,
 			       GdkPoint *start_point,
