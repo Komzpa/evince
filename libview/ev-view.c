@@ -143,6 +143,7 @@ static EvLink *   ev_view_get_link_at_location 		     (EvView             *view,
 static char*      tip_from_link                              (EvView             *view,
 							      EvLink             *link);
 static void       ev_view_link_preview_popover_cleanup       (EvView             *view);
+static void       link_preview_popover_unparent_later        (GtkWidget          *popover);
 static void       get_link_area                              (EvView             *view,
 							      gint                x,
 							      gint                y,
@@ -5198,6 +5199,9 @@ link_preview_show_thumbnail (GdkTexture *page_texture,
 	gint             width, height;    /* dimensions of popup */
 	gint             left, top;
 
+	if (!popover)
+		return;
+
 	x = priv->link_preview.left;
 	y = priv->link_preview.top;
 
@@ -5252,6 +5256,11 @@ link_preview_delayed_show (EvView *view)
 	EvViewPrivate *priv = GET_PRIVATE (view);
 	GtkWidget *popover = priv->link_preview.popover;
 
+	if (!popover) {
+		priv->link_preview.delay_timeout_id = 0;
+		return;
+	}
+
 	gtk_popover_present (GTK_POPOVER (popover));
 	gtk_popover_popup (GTK_POPOVER (popover));
 
@@ -5290,11 +5299,20 @@ link_preview_job_finished_cb (EvJobThumbnailCairo *job,
 			      EvView *view)
 {
 	EvViewPrivate *priv = GET_PRIVATE (view);
+
+	if (EV_JOB (job) != priv->link_preview.job) {
+		g_object_unref (job);
+		return;
+	}
+
 	if (ev_job_is_failed (EV_JOB (job))) {
-		gtk_widget_unparent (priv->link_preview.popover);
-		priv->link_preview.popover = NULL;
+		if (priv->link_preview.popover) {
+			gtk_popover_popdown (GTK_POPOVER (priv->link_preview.popover));
+			g_clear_pointer (&priv->link_preview.popover, link_preview_popover_unparent_later);
+		}
 		g_object_unref (job);
 		priv->link_preview.job = NULL;
+		priv->link_preview.link = NULL;
 		return;
 	}
 
@@ -5305,20 +5323,42 @@ link_preview_job_finished_cb (EvJobThumbnailCairo *job,
 }
 
 static void
+link_preview_popover_unparent_cb (GtkWidget *popover)
+{
+	if (gtk_widget_get_parent (popover))
+		gtk_widget_unparent (popover);
+
+	g_object_unref (popover);
+}
+
+static void
+link_preview_popover_unparent_later (GtkWidget *popover)
+{
+	g_idle_add_once ((GSourceOnceFunc) link_preview_popover_unparent_cb,
+			 g_object_ref (popover));
+}
+
+static void
 ev_view_link_preview_popover_cleanup (EvView *view)
 {
 	EvViewPrivate *priv = GET_PRIVATE (view);
+
+	g_clear_handle_id (&priv->link_preview.delay_timeout_id, g_source_remove);
+
 	if (priv->link_preview.job) {
+		g_signal_handlers_disconnect_by_func (priv->link_preview.job,
+						      link_preview_job_finished_cb,
+						      view);
 		ev_job_cancel (priv->link_preview.job);
 		g_clear_object (&priv->link_preview.job);
 	}
 
 	if (priv->link_preview.popover) {
 		gtk_popover_popdown (GTK_POPOVER (priv->link_preview.popover));
-		g_clear_pointer (&priv->link_preview.popover, gtk_widget_unparent);
+		g_clear_pointer (&priv->link_preview.popover, link_preview_popover_unparent_later);
 	}
 
-	g_clear_handle_id (&priv->link_preview.delay_timeout_id, g_source_remove);
+	priv->link_preview.link = NULL;
 }
 
 static gboolean
@@ -7652,6 +7692,7 @@ ev_view_dispose (GObject *object)
 	g_clear_object (&priv->page_cache);
 
 	ev_view_find_cancel (view);
+	ev_view_link_preview_popover_cleanup (view);
 
 	ev_view_window_children_free (view);
 
@@ -7663,11 +7704,6 @@ ev_view_dispose (GObject *object)
 	g_clear_handle_id (&priv->drag_info.release_timeout_id, g_source_remove);
 	g_clear_handle_id (&priv->cursor_blink_timeout_id, g_source_remove);
 	g_clear_handle_id (&priv->child_focus_idle_id, g_source_remove);
-
-	if (priv->link_preview.job) {
-		ev_job_cancel (priv->link_preview.job);
-		g_clear_object (&priv->link_preview.job);
-	}
 
         gtk_scrollable_set_hadjustment (GTK_SCROLLABLE (view), NULL);
         gtk_scrollable_set_vadjustment (GTK_SCROLLABLE (view), NULL);
