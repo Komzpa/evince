@@ -9,6 +9,8 @@
 
 #include "config.h"
 
+#include "ev-view-private.h"
+
 #include <evince-view.h>
 
 static void
@@ -40,10 +42,21 @@ test_scroll_controller_is_installed (void)
 	g_object_unref (view);
 }
 
+static void
+test_zoom_anchor_scroll_value (void)
+{
+	g_assert_cmpint (ev_view_zoom_anchor_scroll_value (640, 120, 0, 1000, 300), ==, 520);
+	g_assert_cmpint (ev_view_zoom_anchor_scroll_value (50, 120, 0, 1000, 300), ==, 0);
+	g_assert_cmpint (ev_view_zoom_anchor_scroll_value (980, 120, 0, 1000, 300), ==, 700);
+}
+
 int
 main (int argc, char **argv)
 {
 	g_test_init (&argc, &argv, NULL);
+
+	g_test_add_func ("/ev-view/zoom-anchor-scroll-value",
+			 test_zoom_anchor_scroll_value);
 
 	if (!gtk_init_check ()) {
 		g_test_add_func ("/ev-view/scroll-controller-installed",

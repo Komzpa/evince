@@ -158,6 +158,7 @@ test_ev_view = executable(
   'test-ev-view.c',
   include_directories: top_inc,
   dependencies: libevview_dep,
+  c_args: '-DEVINCE_COMPILATION',
 )
 
 test(test_name, test_ev_view)

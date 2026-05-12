@@ -694,11 +694,40 @@ ev_view_set_adjustment_values (EvView         *view,
 			ev_view_scroll_to_page_position (view, orientation);
 			break;
 	        case SCROLL_TO_CENTER:
-			new_value = CLAMP (upper * factor - zoom_center + 0.5, 0, upper - page_size);
+			if (priv->zoom_anchor_valid &&
+			    priv->zoom_anchor_page >= 0 &&
+			    priv->zoom_anchor_page < ev_document_get_n_pages (priv->document)) {
+				GdkPoint anchor_view_point;
+
+				_ev_view_transform_doc_point_to_view_point (view,
+									    priv->zoom_anchor_page,
+									    &priv->zoom_anchor_doc_point,
+									    &anchor_view_point);
+				if (orientation == GTK_ORIENTATION_HORIZONTAL) {
+					new_value = ev_view_zoom_anchor_scroll_value (anchor_view_point.x,
+										      zoom_center,
+										      0,
+										      upper,
+										      page_size);
+					priv->zoom_anchor_pending_x = FALSE;
+				} else {
+					new_value = ev_view_zoom_anchor_scroll_value (anchor_view_point.y,
+										      zoom_center,
+										      0,
+										      upper,
+										      page_size);
+					priv->zoom_anchor_pending_y = FALSE;
+				}
+			} else {
+				new_value = CLAMP (upper * factor - zoom_center + 0.5, 0, upper - page_size);
+			}
+
 			if (orientation == GTK_ORIENTATION_HORIZONTAL)
 				priv->zoom_center_x = -1.0;
 			else
 				priv->zoom_center_y = -1.0;
+			if (!priv->zoom_anchor_pending_x && !priv->zoom_anchor_pending_y)
+				priv->zoom_anchor_valid = FALSE;
 			gtk_adjustment_set_value (adjustment, new_value);
 			break;
 	}
@@ -1706,6 +1735,36 @@ get_doc_point_from_location (EvView  *view,
 		return FALSE;
 
 	return get_doc_point_from_offset (view, *page, x_offset, y_offset, x_new, y_new);
+}
+
+static void
+ev_view_set_zoom_center (EvView  *view,
+			 gdouble  x,
+			 gdouble  y)
+{
+	EvViewPrivate *priv = GET_PRIVATE (view);
+	gint page = -1;
+	gint doc_x = 0;
+	gint doc_y = 0;
+
+	priv->zoom_center_x = x;
+	priv->zoom_center_y = y;
+	priv->zoom_anchor_valid = FALSE;
+	priv->zoom_anchor_pending_x = FALSE;
+	priv->zoom_anchor_pending_y = FALSE;
+
+	if (!priv->document)
+		return;
+
+	if (!get_doc_point_from_location (view, x, y, &page, &doc_x, &doc_y))
+		return;
+
+	priv->zoom_anchor_valid = TRUE;
+	priv->zoom_anchor_pending_x = TRUE;
+	priv->zoom_anchor_pending_y = TRUE;
+	priv->zoom_anchor_page = page;
+	priv->zoom_anchor_doc_point.x = doc_x;
+	priv->zoom_anchor_doc_point.y = doc_y;
 }
 
 static void
@@ -4591,26 +4650,30 @@ ev_view_scroll_event (GtkEventControllerScroll *self, gdouble dx, gdouble dy, Gt
 
 	if (state == GDK_CONTROL_MASK) {
 		ev_document_model_set_sizing_mode (priv->model, EV_SIZING_FREE);
-		priv->zoom_center_x = x;
-		priv->zoom_center_y = y;
 
 		switch (direction) {
 		case GDK_SCROLL_DOWN:
 		case GDK_SCROLL_RIGHT:
-			if (ev_view_can_zoom_out (view))
+			if (ev_view_can_zoom_out (view)) {
+				ev_view_set_zoom_center (view, x, y);
 				ev_view_zoom_out (view);
+			}
 			break;
 		case GDK_SCROLL_UP:
 		case GDK_SCROLL_LEFT:
-			if (ev_view_can_zoom_in (view))
+			if (ev_view_can_zoom_in (view)) {
+				ev_view_set_zoom_center (view, x, y);
 				ev_view_zoom_in (view);
+			}
 			break;
 		case GDK_SCROLL_SMOOTH: {
 			gdouble delta = dx + dy;
 			gdouble factor = pow (delta < 0 ? ZOOM_IN_FACTOR : ZOOM_OUT_FACTOR, fabs (delta));
 
-			if (ev_view_can_zoom (view, factor))
+			if (ev_view_can_zoom (view, factor)) {
+				ev_view_set_zoom_center (view, x, y);
 				ev_view_zoom (view, factor);
+			}
 		}
 			break;
 		}
@@ -8082,11 +8145,14 @@ zoom_gesture_scale_changed_cb (GtkGestureZoom *gesture,
 	priv->prev_zoom_gesture_scale = scale;
 	ev_document_model_set_sizing_mode (priv->model, EV_SIZING_FREE);
 
-	gtk_gesture_get_bounding_box_center (GTK_GESTURE (gesture), &priv->zoom_center_x, &priv->zoom_center_y);
-
 	if ((factor < 1.0 && ev_view_can_zoom_out (view)) ||
-	    (factor >= 1.0 && ev_view_can_zoom_in (view)))
+	    (factor >= 1.0 && ev_view_can_zoom_in (view))) {
+		gdouble x, y;
+
+		gtk_gesture_get_bounding_box_center (GTK_GESTURE (gesture), &x, &y);
+		ev_view_set_zoom_center (view, x, y);
 		ev_view_zoom (view, factor);
+	}
 }
 
 static void
