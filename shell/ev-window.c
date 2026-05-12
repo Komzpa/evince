@@ -3831,6 +3831,8 @@ ev_window_check_document_modified (EvWindow      *ev_window,
 	if (!document)
 		return FALSE;
 
+	ev_view_sync_form_fields (EV_VIEW (priv->view));
+
 	if (EV_IS_DOCUMENT_FORMS (document) &&
 	    ev_document_forms_document_is_modified (EV_DOCUMENT_FORMS (document))) {
 		secondary_text = _("Document contains form fields that have been filled out.");
