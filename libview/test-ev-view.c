@@ -45,9 +45,38 @@ test_scroll_controller_is_installed (void)
 static void
 test_zoom_anchor_scroll_value (void)
 {
-	g_assert_cmpint (ev_view_zoom_anchor_scroll_value (640, 120, 0, 1000, 300), ==, 520);
-	g_assert_cmpint (ev_view_zoom_anchor_scroll_value (50, 120, 0, 1000, 300), ==, 0);
-	g_assert_cmpint (ev_view_zoom_anchor_scroll_value (980, 120, 0, 1000, 300), ==, 700);
+	g_assert_cmpint (ev_view_zoom_anchor_scroll_value (520, 0, 1000, 300), ==, 520);
+	g_assert_cmpint (ev_view_zoom_anchor_scroll_value (-70, -70, 1000, 300), ==, -70);
+	g_assert_cmpint (ev_view_zoom_anchor_scroll_value (860, 0, 1160, 300), ==, 860);
+}
+
+static void
+test_zoom_anchor_scroll_bounds_allow_edge_overscroll (void)
+{
+	gdouble lower = 0.0;
+	gdouble upper = 1000.0;
+
+	ev_view_zoom_anchor_scroll_bounds (-70, lower, upper, 300, &lower, &upper);
+
+	g_assert_cmpfloat (lower, ==, -70.0);
+	g_assert_cmpfloat (upper, ==, 1000.0);
+
+	lower = 0.0;
+	upper = 1000.0;
+	ev_view_zoom_anchor_scroll_bounds (860, lower, upper, 300, &lower, &upper);
+
+	g_assert_cmpfloat (lower, ==, 0.0);
+	g_assert_cmpfloat (upper, ==, 1160.0);
+}
+
+static void
+test_zoom_anchor_matches_same_widget_position (void)
+{
+	g_assert_true (ev_view_zoom_anchor_matches_widget_position (TRUE, 120.0, 80.0, 120.0, 80.0));
+	g_assert_true (ev_view_zoom_anchor_matches_widget_position (TRUE, 120.0, 80.0, 120.4, 79.6));
+	g_assert_false (ev_view_zoom_anchor_matches_widget_position (FALSE, 120.0, 80.0, 120.0, 80.0));
+	g_assert_false (ev_view_zoom_anchor_matches_widget_position (TRUE, 120.0, 80.0, 121.0, 80.0));
+	g_assert_false (ev_view_zoom_anchor_matches_widget_position (TRUE, 120.0, 80.0, 120.0, 81.0));
 }
 
 static void
@@ -124,6 +153,10 @@ main (int argc, char **argv)
 
 	g_test_add_func ("/ev-view/zoom-anchor-scroll-value",
 			 test_zoom_anchor_scroll_value);
+	g_test_add_func ("/ev-view/zoom-anchor-scroll-bounds-allow-edge-overscroll",
+			 test_zoom_anchor_scroll_bounds_allow_edge_overscroll);
+	g_test_add_func ("/ev-view/zoom-anchor-matches-same-widget-position",
+			 test_zoom_anchor_matches_same_widget_position);
 	g_test_add_func ("/ev-view/zoom-scale-limit/allows-400-percent",
 			 test_zoom_scale_limit_allows_400_percent);
 	g_test_add_func ("/ev-view/zoom-scale-limit/keeps-larger-cache-limit",

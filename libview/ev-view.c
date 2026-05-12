@@ -101,6 +101,7 @@ typedef struct {
 
 #define SCROLL_TIME 150
 #define SCROLL_PAGE_THRESHOLD 0.7
+#define ZOOM_ANCHOR_CLEAR_TIME 250
 
 #define DEFAULT_PIXBUF_CACHE_SIZE 52428800 /* 50MB */
 
@@ -225,7 +226,8 @@ static void       ev_view_page_changed_cb                    (EvDocumentModel   
 							      gint                new_page,
 							      EvView             *view);
 static void       adjustment_value_changed_cb                (GtkAdjustment      *adjustment,
-							      EvView             *view);
+								      EvView             *view);
+static void       ev_view_clear_zoom_anchor                  (EvView             *view);
 /*** GObject ***/
 static void       ev_view_finalize                           (GObject            *object);
 static void       ev_view_dispose                            (GObject            *object);
@@ -610,7 +612,9 @@ ev_view_set_adjustment_values (EvView         *view,
 {
 	GtkAdjustment *adjustment;
 	gint req_size, alloc_size, new_value;
-	gdouble page_size, value, upper, factor, zoom_center;
+	gdouble page_size, value, lower, upper, factor, zoom_center;
+	gdouble desired_zoom_anchor_value = 0.0;
+	gboolean use_zoom_anchor = FALSE;
 	EvViewPrivate *priv = GET_PRIVATE (view);
 
 	if (orientation == GTK_ORIENTATION_HORIZONTAL)  {
@@ -649,11 +653,45 @@ ev_view_set_adjustment_values (EvView         *view,
 		}
 	}
 
+	lower = 0.0;
 	upper = MAX (alloc_size, req_size);
 	page_size = alloc_size;
 
-	gtk_adjustment_configure (adjustment, value, 0, upper,
-			alloc_size * 0.1, alloc_size * 0.9, page_size);
+	if (priv->pending_scroll == SCROLL_TO_CENTER) {
+		gboolean zoom_anchor_pending;
+
+		zoom_anchor_pending = (orientation == GTK_ORIENTATION_HORIZONTAL) ?
+			priv->zoom_anchor_pending_x :
+			priv->zoom_anchor_pending_y;
+
+		if (priv->document &&
+		    priv->zoom_anchor_valid &&
+		    zoom_anchor_pending &&
+		    priv->zoom_anchor_page >= 0 &&
+		    priv->zoom_anchor_page < ev_document_get_n_pages (priv->document)) {
+			GdkPoint anchor_view_point;
+
+			_ev_view_transform_doc_point_to_view_point (view,
+								    priv->zoom_anchor_page,
+								    &priv->zoom_anchor_doc_point,
+								    &anchor_view_point);
+			desired_zoom_anchor_value =
+				ev_view_zoom_anchor_scroll_position (orientation == GTK_ORIENTATION_HORIZONTAL ?
+								     anchor_view_point.x :
+								     anchor_view_point.y,
+								     zoom_center);
+			ev_view_zoom_anchor_scroll_bounds (desired_zoom_anchor_value,
+							  lower,
+							  upper,
+							  page_size,
+							  &lower,
+							  &upper);
+			use_zoom_anchor = TRUE;
+		}
+	}
+
+	gtk_adjustment_configure (adjustment, value, lower, upper,
+				alloc_size * 0.1, alloc_size * 0.9, page_size);
 
 	/*
 	 * We add 0.5 to the values before to average out our rounding errors.
@@ -668,31 +706,15 @@ ev_view_set_adjustment_values (EvView         *view,
 			ev_view_scroll_to_page_position (view, orientation);
 			break;
 	        case SCROLL_TO_CENTER:
-			if (priv->document &&
-			    priv->zoom_anchor_valid &&
-			    priv->zoom_anchor_page >= 0 &&
-			    priv->zoom_anchor_page < ev_document_get_n_pages (priv->document)) {
-				GdkPoint anchor_view_point;
-
-				_ev_view_transform_doc_point_to_view_point (view,
-									    priv->zoom_anchor_page,
-									    &priv->zoom_anchor_doc_point,
-									    &anchor_view_point);
-				if (orientation == GTK_ORIENTATION_HORIZONTAL) {
-					new_value = ev_view_zoom_anchor_scroll_value (anchor_view_point.x,
-										      zoom_center,
-										      0,
-										      upper,
-										      page_size);
+			if (use_zoom_anchor) {
+				new_value = ev_view_zoom_anchor_scroll_value (desired_zoom_anchor_value,
+									      lower,
+									      upper,
+									      page_size);
+				if (orientation == GTK_ORIENTATION_HORIZONTAL)
 					priv->zoom_anchor_pending_x = FALSE;
-				} else {
-					new_value = ev_view_zoom_anchor_scroll_value (anchor_view_point.y,
-										      zoom_center,
-										      0,
-										      upper,
-										      page_size);
+				else
 					priv->zoom_anchor_pending_y = FALSE;
-				}
 			} else {
 				new_value = CLAMP (upper * factor - zoom_center + 0.5, 0, upper - page_size);
 			}
@@ -701,8 +723,6 @@ ev_view_set_adjustment_values (EvView         *view,
 				priv->zoom_center_x = -1.0;
 			else
 				priv->zoom_center_y = -1.0;
-			if (!priv->zoom_anchor_pending_x && !priv->zoom_anchor_pending_y)
-				priv->zoom_anchor_valid = FALSE;
 			gtk_adjustment_set_value (adjustment, new_value);
 			break;
 	}
@@ -979,8 +999,10 @@ ev_view_last_page (EvView *view)
 	gint n_pages;
 	EvViewPrivate *priv = GET_PRIVATE (view);
 
-	if (!priv->document)
+	if (!priv->document) {
+		ev_view_clear_zoom_anchor (view);
 		return;
+	}
 
 	n_pages = ev_document_get_n_pages (priv->document);
 	if (n_pages <= 1)
@@ -1713,6 +1735,40 @@ get_doc_point_from_location (EvView  *view,
 }
 
 static void
+ev_view_clear_zoom_anchor (EvView *view)
+{
+	EvViewPrivate *priv = GET_PRIVATE (view);
+
+	priv->zoom_anchor_valid = FALSE;
+	priv->zoom_anchor_pending_x = FALSE;
+	priv->zoom_anchor_pending_y = FALSE;
+	g_clear_handle_id (&priv->zoom_anchor_clear_timeout_id, g_source_remove);
+}
+
+static void
+ev_view_zoom_anchor_clear_cb (EvView *view)
+{
+	EvViewPrivate *priv = GET_PRIVATE (view);
+
+	priv->zoom_anchor_clear_timeout_id = 0;
+	priv->zoom_anchor_valid = FALSE;
+	priv->zoom_anchor_pending_x = FALSE;
+	priv->zoom_anchor_pending_y = FALSE;
+}
+
+static void
+ev_view_schedule_zoom_anchor_clear (EvView *view)
+{
+	EvViewPrivate *priv = GET_PRIVATE (view);
+
+	g_clear_handle_id (&priv->zoom_anchor_clear_timeout_id, g_source_remove);
+	priv->zoom_anchor_clear_timeout_id =
+		g_timeout_add_once (ZOOM_ANCHOR_CLEAR_TIME,
+				    (GSourceOnceFunc) ev_view_zoom_anchor_clear_cb,
+				    view);
+}
+
+static void
 ev_view_set_zoom_center (EvView  *view,
 			 gdouble  x,
 			 gdouble  y)
@@ -1724,15 +1780,27 @@ ev_view_set_zoom_center (EvView  *view,
 
 	priv->zoom_center_x = x;
 	priv->zoom_center_y = y;
-	priv->zoom_anchor_valid = FALSE;
-	priv->zoom_anchor_pending_x = FALSE;
-	priv->zoom_anchor_pending_y = FALSE;
 
-	if (!priv->document)
+	if (ev_view_zoom_anchor_matches_widget_position (priv->zoom_anchor_valid,
+							 priv->zoom_anchor_widget_x,
+							 priv->zoom_anchor_widget_y,
+							 x,
+							 y)) {
+		priv->zoom_anchor_pending_x = TRUE;
+		priv->zoom_anchor_pending_y = TRUE;
+		ev_view_schedule_zoom_anchor_clear (view);
 		return;
+	}
 
-	if (!get_doc_point_from_location (view, x, y, &page, &doc_x, &doc_y))
+	if (!priv->document) {
+		ev_view_clear_zoom_anchor (view);
 		return;
+	}
+
+	if (!get_doc_point_from_location (view, x, y, &page, &doc_x, &doc_y)) {
+		ev_view_clear_zoom_anchor (view);
+		return;
+	}
 
 	priv->zoom_anchor_valid = TRUE;
 	priv->zoom_anchor_pending_x = TRUE;
@@ -1740,6 +1808,9 @@ ev_view_set_zoom_center (EvView  *view,
 	priv->zoom_anchor_page = page;
 	priv->zoom_anchor_doc_point.x = doc_x;
 	priv->zoom_anchor_doc_point.y = doc_y;
+	priv->zoom_anchor_widget_x = x;
+	priv->zoom_anchor_widget_y = y;
+	ev_view_schedule_zoom_anchor_clear (view);
 }
 
 static void
@@ -4568,6 +4639,7 @@ ev_view_scroll_event (GtkEventControllerScroll *self, gdouble dx, gdouble dy, Gt
 	}
 
 	priv->jump_to_find_result = FALSE;
+	ev_view_clear_zoom_anchor (view);
 
 #if 0
 	/* TODO: implement this in GTK4 */
@@ -7555,6 +7627,7 @@ ev_view_dispose (GObject *object)
 	g_clear_handle_id (&priv->drag_info.release_timeout_id, g_source_remove);
 	g_clear_handle_id (&priv->cursor_blink_timeout_id, g_source_remove);
 	g_clear_handle_id (&priv->child_focus_idle_id, g_source_remove);
+	g_clear_handle_id (&priv->zoom_anchor_clear_timeout_id, g_source_remove);
 
 	if (priv->link_preview.job) {
 		ev_job_cancel (priv->link_preview.job);
@@ -8537,6 +8610,7 @@ ev_view_document_changed_cb (EvDocumentModel *model,
 	if (document != priv->document) {
 		gint current_page;
 
+		ev_view_clear_zoom_anchor (view);
 		ev_view_remove_all (view);
 		clear_caches (view);
 
@@ -8882,9 +8956,7 @@ ev_view_zoom (EvView *view, gdouble factor)
 	ev_document_model_set_scale (priv->model, scale);
 	if (ABS (ev_document_model_get_scale (priv->model) - old_scale) < EPSILON) {
 		priv->pending_scroll = SCROLL_TO_KEEP_POSITION;
-		priv->zoom_anchor_valid = FALSE;
-		priv->zoom_anchor_pending_x = FALSE;
-		priv->zoom_anchor_pending_y = FALSE;
+		ev_view_clear_zoom_anchor (view);
 		priv->zoom_center_x = -1.0;
 		priv->zoom_center_y = -1.0;
 	}

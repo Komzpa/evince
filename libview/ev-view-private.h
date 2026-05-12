@@ -262,6 +262,9 @@ typedef struct _EvViewPrivate {
 	gboolean zoom_anchor_pending_y;
 	gint zoom_anchor_page;
 	EvPoint zoom_anchor_doc_point;
+	gdouble zoom_anchor_widget_x;
+	gdouble zoom_anchor_widget_y;
+	guint zoom_anchor_clear_timeout_id;
 
 	/* Link preview */
 	EvLinkPreview link_preview;
@@ -363,15 +366,45 @@ ev_view_max_scale_for_page (gsize   pixbuf_cache_size,
 }
 
 static inline gint
-ev_view_zoom_anchor_scroll_value (gdouble anchor_view_pos,
-				  gdouble anchor_widget_pos,
+ev_view_zoom_anchor_scroll_position (gdouble anchor_view_pos,
+				     gdouble anchor_widget_pos)
+{
+	return anchor_view_pos - anchor_widget_pos;
+}
+
+static inline void
+ev_view_zoom_anchor_scroll_bounds (gdouble desired_scroll_value,
+				   gdouble base_lower,
+				   gdouble base_upper,
+				   gdouble page_size,
+				   gdouble *lower,
+				   gdouble *upper)
+{
+	*lower = MIN (base_lower, desired_scroll_value);
+	*upper = MAX (base_upper, desired_scroll_value + page_size);
+}
+
+static inline gint
+ev_view_zoom_anchor_scroll_value (gdouble desired_scroll_value,
 				  gdouble lower,
 				  gdouble upper,
 				  gdouble page_size)
 {
-	return CLAMP ((gint) (anchor_view_pos - anchor_widget_pos + 0.5),
+	return CLAMP ((gint) round (desired_scroll_value),
 		      (gint) lower,
 		      (gint) MAX (lower, upper - page_size));
+}
+
+static inline gboolean
+ev_view_zoom_anchor_matches_widget_position (gboolean anchor_valid,
+					     gdouble  anchor_widget_x,
+					     gdouble  anchor_widget_y,
+					     gdouble  widget_x,
+					     gdouble  widget_y)
+{
+	return anchor_valid &&
+	       fabs (anchor_widget_x - widget_x) <= 0.5 &&
+	       fabs (anchor_widget_y - widget_y) <= 0.5;
 }
 
 static inline void
