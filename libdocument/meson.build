@@ -69,6 +69,7 @@ sources = files(
   'ev-document-text.c',
   'ev-document-transition.c',
   'ev-file-exporter.c',
+  'ev-file-exporter-private.h',
   'ev-file-helpers.c',
   'ev-form-field.c',
   'ev-image.c',

@@ -22,13 +22,83 @@
 
 #include <config.h>
 #include "ev-file-exporter.h"
+#include "ev-file-exporter-private.h"
 #include "ev-document.h"
 
 G_DEFINE_INTERFACE (EvFileExporter, ev_file_exporter, 0)
 
+typedef struct {
+	gboolean scale_to_paper;
+	gboolean autorotate;
+	gdouble manual_scale;
+} EvFileExporterPrintSettings;
+
+static GQuark
+ev_file_exporter_print_settings_quark (void)
+{
+	static GQuark quark = 0;
+
+	if (quark == 0)
+		quark = g_quark_from_static_string ("ev-file-exporter-print-settings");
+
+	return quark;
+}
+
 static void
 ev_file_exporter_default_init (EvFileExporterInterface *klass)
 {
+}
+
+void
+ev_file_exporter_set_print_settings (EvFileExporter *exporter,
+				     gboolean        scale_to_paper,
+				     gboolean        autorotate,
+				     gdouble         manual_scale)
+{
+	EvFileExporterPrintSettings *settings;
+
+	g_return_if_fail (EV_IS_FILE_EXPORTER (exporter));
+
+	settings = g_new0 (EvFileExporterPrintSettings, 1);
+	settings->scale_to_paper = scale_to_paper;
+	settings->autorotate = autorotate;
+	settings->manual_scale = manual_scale;
+
+	g_object_set_qdata_full (G_OBJECT (exporter),
+				 ev_file_exporter_print_settings_quark (),
+				 settings,
+				 g_free);
+}
+
+void
+ev_file_exporter_clear_print_settings (EvFileExporter *exporter)
+{
+	g_return_if_fail (EV_IS_FILE_EXPORTER (exporter));
+
+	g_object_set_qdata (G_OBJECT (exporter),
+			    ev_file_exporter_print_settings_quark (),
+			    NULL);
+}
+
+void
+ev_file_exporter_get_print_settings (EvFileExporter *exporter,
+				     gboolean       *scale_to_paper,
+				     gboolean       *autorotate,
+				     gdouble        *manual_scale)
+{
+	EvFileExporterPrintSettings *settings;
+
+	g_return_if_fail (EV_IS_FILE_EXPORTER (exporter));
+
+	settings = g_object_get_qdata (G_OBJECT (exporter),
+				      ev_file_exporter_print_settings_quark ());
+
+	if (scale_to_paper)
+		*scale_to_paper = settings ? settings->scale_to_paper : TRUE;
+	if (autorotate)
+		*autorotate = settings ? settings->autorotate : TRUE;
+	if (manual_scale)
+		*manual_scale = settings ? settings->manual_scale : 1.0;
 }
 
 void
@@ -73,6 +143,7 @@ ev_file_exporter_end (EvFileExporter *exporter)
         EvFileExporterInterface *iface = EV_FILE_EXPORTER_GET_IFACE (exporter);
 
         iface->end (exporter);
+	ev_file_exporter_clear_print_settings (exporter);
 }
 
 EvFileExporterCapabilities
