@@ -1782,6 +1782,43 @@ ev_window_clear_local_uri (EvWindow *ev_window)
 	}
 }
 
+static gboolean
+ev_window_path_has_dir_prefix (const char *path,
+			       const char *dir)
+{
+	gsize len;
+
+	if (!path || !dir || *dir == '\0')
+		return FALSE;
+
+	len = strlen (dir);
+
+	return g_str_has_prefix (path, dir) &&
+		(path[len] == '\0' || G_IS_DIR_SEPARATOR (path[len]));
+}
+
+static gboolean
+ev_window_path_is_temporary_or_gvfs_mount (const char *path)
+{
+	const char *runtime_dir;
+	g_autofree char *gvfs_dir = NULL;
+
+	if (!path)
+		return FALSE;
+
+	if (ev_window_path_has_dir_prefix (path, g_get_tmp_dir ()) ||
+	    ev_window_path_has_dir_prefix (path, "/var/tmp"))
+		return TRUE;
+
+	runtime_dir = g_get_user_runtime_dir ();
+	if (!runtime_dir)
+		return FALSE;
+
+	gvfs_dir = g_build_filename (runtime_dir, "gvfs", NULL);
+
+	return ev_window_path_has_dir_prefix (path, gvfs_dir);
+}
+
 static void
 ev_window_handle_link (EvWindow *ev_window,
 		       EvLinkDest *dest)
@@ -2372,7 +2409,7 @@ ev_window_open_uri (EvWindow       *ev_window,
 	g_clear_pointer (&priv->uri, g_free);
 	path = g_file_get_path (source_file);
 	/* Try to use FUSE-backed files if possible to avoid downloading */
-	if (path)
+	if (path && !ev_window_path_is_temporary_or_gvfs_mount (path))
 		priv->uri = g_filename_to_uri (path, NULL, NULL);
 	else
 		priv->uri = g_strdup (uri);
@@ -3082,9 +3119,9 @@ ev_window_save_as (EvWindow *ev_window)
 {
 	EvWindowPrivate *priv = GET_PRIVATE (ev_window);
 	GtkFileChooserNative *fc;
-	gchar *base_name, *dir_name, *var_tmp_dir, *tmp_dir;
+	gchar *base_name, *dir_name;
 	GFile *file, *parent, *dest_file;
-	const gchar *default_dir, *dest_dir, *documents_dir;
+	const gchar *default_dir, *documents_dir;
 
 	fc = gtk_file_chooser_native_new (
 		_("Save As…"),
@@ -3097,8 +3134,7 @@ ev_window_save_as (EvWindow *ev_window)
 	file = g_file_new_for_uri (priv->uri);
 	base_name = priv->edit_name;
 	parent = g_file_get_parent (file);
-	dir_name = g_file_get_path (parent);
-	g_object_unref (parent);
+	dir_name = parent ? g_file_get_path (parent) : NULL;
 
 	gtk_file_chooser_set_current_name (GTK_FILE_CHOOSER (fc), base_name);
 
@@ -3106,21 +3142,17 @@ ev_window_save_as (EvWindow *ev_window)
 	default_dir = g_file_test (documents_dir, G_FILE_TEST_EXISTS | G_FILE_TEST_IS_DIR) ?
 	              documents_dir : g_get_home_dir ();
 
-	tmp_dir = g_build_filename ("tmp", NULL);
-	var_tmp_dir = g_build_filename ("var", "tmp", NULL);
-	dest_dir = dir_name && !g_str_has_prefix (dir_name, g_get_tmp_dir ()) &&
-			    !g_str_has_prefix (dir_name, tmp_dir) &&
-	                    !g_str_has_prefix (dir_name, var_tmp_dir) ?
-	                    dir_name : default_dir;
+	if (!parent || (dir_name && ev_window_path_is_temporary_or_gvfs_mount (dir_name)))
+		dest_file = g_file_new_for_path (default_dir);
+	else
+		dest_file = g_object_ref (parent);
 
-	dest_file = g_file_new_for_uri (dest_dir);
 	gtk_file_chooser_set_current_folder (GTK_FILE_CHOOSER (fc),
 					     dest_file, NULL);
 
 	g_object_unref (file);
+	g_clear_object (&parent);
 	g_object_unref (dest_file);
-	g_free (tmp_dir);
-	g_free (var_tmp_dir);
 	g_free (dir_name);
 
 	g_signal_connect (fc, "response",
