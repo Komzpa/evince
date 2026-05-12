@@ -1663,7 +1663,7 @@ get_doc_point_from_offset (EvView *view,
 {
 	EvViewPrivate *priv = GET_PRIVATE (view);
         gdouble width, height;
-	double x, y;
+	double x = 0.0, y = 0.0;
 
 	get_doc_page_size (view, page, &width, &height);
 
@@ -4514,9 +4514,24 @@ ev_view_scroll_event (GtkEventControllerScroll *self, gdouble dx, gdouble dy, Gt
 	state = gtk_event_controller_get_current_event_state (GTK_EVENT_CONTROLLER (self))
 			 & gtk_accelerator_get_default_mod_mask ();
 	direction = gdk_scroll_event_get_direction (event);
-	if (!gdk_event_get_position (event, &x, &y)) {
-		x = gtk_widget_get_width (widget) / 2.0;
-		y = gtk_widget_get_height (widget) / 2.0;
+	{
+		gint pointer_x = 0;
+		gint pointer_y = 0;
+		gboolean event_has_position;
+		gboolean pointer_has_position;
+
+		event_has_position = gdk_event_get_position (event, &x, &y);
+		pointer_has_position = ev_document_misc_get_pointer_position_impl (widget, &pointer_x, &pointer_y);
+		ev_view_zoom_center_for_scroll (event_has_position,
+						x,
+						y,
+						pointer_has_position,
+						pointer_x,
+						pointer_y,
+						gtk_widget_get_width (widget),
+						gtk_widget_get_height (widget),
+						&x,
+						&y);
 	}
 
 	if (state == GDK_CONTROL_MASK) {
@@ -7644,10 +7659,10 @@ view_update_scale_limits (EvView *view)
 	ev_document_get_min_page_size (priv->document, &min_width, &min_height);
 	width = (rotation == 0 || rotation == 180) ? min_width : min_height;
 	height = (rotation == 0 || rotation == 180) ? min_height : min_width;
-	max_scale = sqrt (priv->pixbuf_cache_size / (width * dpi * 4 * height * dpi));
+	max_scale = ev_view_max_scale_for_page (priv->pixbuf_cache_size, width, height, dpi);
 
 	ev_document_model_set_min_scale (priv->model, MIN_SCALE * dpi);
-	ev_document_model_set_max_scale (priv->model, max_scale * dpi);
+	ev_document_model_set_max_scale (priv->model, max_scale);
 }
 
 static void

@@ -152,7 +152,8 @@ ev_zoom_action_populate_free_zoom_section (EvZoomAction *zoom_action)
         guint   i;
         gint    width = 0;
 
-        max_scale = ev_document_model_get_max_scale (priv->model);
+        max_scale = ev_document_model_get_max_scale (priv->model) * 72.0 /
+                    ev_document_misc_get_widget_dpi (GTK_WIDGET (zoom_action));
 
         for (i = 0; i < G_N_ELEMENTS (zoom_levels); i++) {
                 GMenuItem *item;
