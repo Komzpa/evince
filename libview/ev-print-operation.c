@@ -2639,7 +2639,9 @@ ev_print_operation_print_create_custom_widget (EvPrintOperationPrint *print,
 	autorotate = gtk_print_settings_has_key (settings, EV_PRINT_SETTING_AUTOROTATE) ?
 		gtk_print_settings_get_bool (settings, EV_PRINT_SETTING_AUTOROTATE) :
 		TRUE;
-	use_source_size = gtk_print_settings_get_bool (settings, EV_PRINT_SETTING_PAGE_SIZE);
+	use_source_size = gtk_print_settings_has_key (settings, EV_PRINT_SETTING_PAGE_SIZE) ?
+		gtk_print_settings_get_bool (settings, EV_PRINT_SETTING_PAGE_SIZE) :
+		TRUE;
 	draw_borders = gtk_print_settings_has_key (settings, EV_PRINT_SETTING_DRAW_BORDERS) ?
 		gtk_print_settings_get_bool (settings, EV_PRINT_SETTING_DRAW_BORDERS) :
 		FALSE;
