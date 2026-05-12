@@ -25,6 +25,9 @@
 
 #include "ev-file-monitor.h"
 
+#define EV_FILE_MONITOR_CHANGED_TIMEOUT_MS 5000
+#define EV_FILE_MONITOR_DONE_TIMEOUT_MS     500
+
 enum {
 	CHANGED,
 	N_SIGNALS
@@ -36,7 +39,8 @@ typedef struct {
 	guint         timeout_id;
 } EvFileMonitorPrivate;
 
-static void ev_file_monitor_timeout_start (EvFileMonitor    *ev_monitor);
+static void ev_file_monitor_timeout_start (EvFileMonitor    *ev_monitor,
+					   guint             timeout_ms);
 static void ev_file_monitor_timeout_stop  (EvFileMonitor    *ev_monitor);
 static void ev_file_monitor_changed_cb    (GFileMonitor     *monitor,
 					   GFile            *file,
@@ -102,14 +106,15 @@ timeout_cb (EvFileMonitor *ev_monitor)
 }
 
 static void
-ev_file_monitor_timeout_start (EvFileMonitor *ev_monitor)
+ev_file_monitor_timeout_start (EvFileMonitor *ev_monitor,
+			       guint          timeout_ms)
 {
 	EvFileMonitorPrivate *priv = GET_PRIVATE (ev_monitor);
 
 	ev_file_monitor_timeout_stop (ev_monitor);
 
 	priv->timeout_id =
-		g_timeout_add_once (5000, (GSourceOnceFunc)timeout_cb, ev_monitor);
+		g_timeout_add_once (timeout_ms, (GSourceOnceFunc)timeout_cb, ev_monitor);
 }
 
 static void
@@ -129,12 +134,11 @@ ev_file_monitor_changed_cb (GFileMonitor     *monitor,
 {
 	switch (event_type) {
 	case G_FILE_MONITOR_EVENT_CHANGES_DONE_HINT:
-		ev_file_monitor_timeout_stop (ev_monitor);
-		g_signal_emit (ev_monitor, signals[CHANGED], 0);
+		ev_file_monitor_timeout_start (ev_monitor, EV_FILE_MONITOR_DONE_TIMEOUT_MS);
 
 		break;
 	case G_FILE_MONITOR_EVENT_CHANGED:
-		ev_file_monitor_timeout_start (ev_monitor);
+		ev_file_monitor_timeout_start (ev_monitor, EV_FILE_MONITOR_CHANGED_TIMEOUT_MS);
 		break;
 	default:
 		break;
