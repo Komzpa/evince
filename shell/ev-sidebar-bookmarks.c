@@ -297,6 +297,7 @@ ev_sidebar_bookmarks_bookmark_renamed (GtkCellRendererText *renderer,
 {
         EvSidebarBookmarksPrivate *priv = GET_PRIVATE (sidebar_bookmarks);
         GtkTreePath               *path = gtk_tree_path_new_from_string (path_string);
+        GtkTreeSelection          *selection;
         GtkTreeModel              *model;
         GtkTreeIter                iter;
         guint                      page;
@@ -315,6 +316,17 @@ ev_sidebar_bookmarks_bookmark_renamed (GtkCellRendererText *renderer,
         bm.page = page;
         bm.title = g_markup_escape_text (new_text, -1);
         ev_bookmarks_update (priv->bookmarks, &bm);
+
+        selection = gtk_tree_view_get_selection (GTK_TREE_VIEW (priv->tree_view));
+        g_signal_handlers_block_by_func (selection,
+                                         ev_sidebar_bookmarks_selection_changed,
+                                         sidebar_bookmarks);
+        gtk_tree_selection_unselect_all (selection);
+        g_signal_handlers_unblock_by_func (selection,
+                                           ev_sidebar_bookmarks_selection_changed,
+                                           sidebar_bookmarks);
+	if (gtk_widget_get_sensitive (priv->del_button))
+		gtk_widget_set_sensitive (priv->del_button, FALSE);
 }
 
 static gboolean
