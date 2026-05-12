@@ -97,6 +97,7 @@ typedef struct {
 #define MIN_SCALE 0.05409 /* large documents (comics) need a small value, see #702 */
 #define ZOOM_IN_FACTOR  1.2
 #define ZOOM_OUT_FACTOR (1.0/ZOOM_IN_FACTOR)
+#define EPSILON 0.0000001
 
 #define SCROLL_TIME 150
 #define SCROLL_PAGE_THRESHOLD 0.7
@@ -667,7 +668,8 @@ ev_view_set_adjustment_values (EvView         *view,
 			ev_view_scroll_to_page_position (view, orientation);
 			break;
 	        case SCROLL_TO_CENTER:
-			if (priv->zoom_anchor_valid &&
+			if (priv->document &&
+			    priv->zoom_anchor_valid &&
 			    priv->zoom_anchor_page >= 0 &&
 			    priv->zoom_anchor_page < ev_document_get_n_pages (priv->document)) {
 				GdkPoint anchor_view_point;
@@ -8612,8 +8614,8 @@ update_can_zoom (EvView *view)
 	min_scale = ev_document_model_get_min_scale (priv->model);
 	max_scale = ev_document_model_get_max_scale (priv->model);
 
-	can_zoom_in = priv->scale <= max_scale;
-	can_zoom_out = priv->scale > min_scale;
+	can_zoom_in = priv->scale < max_scale - EPSILON;
+	can_zoom_out = priv->scale > min_scale + EPSILON;
 
 	if (can_zoom_in != priv->can_zoom_in) {
 		priv->can_zoom_in = can_zoom_in;
@@ -8644,7 +8646,6 @@ ev_view_page_layout_changed_cb (EvDocumentModel *model,
 	 */
 }
 
-#define EPSILON 0.0000001
 static void
 ev_view_scale_changed_cb (EvDocumentModel *model,
 			  GParamSpec      *pspec,
@@ -8855,14 +8856,23 @@ ev_view_can_zoom_out (EvView *view)
 static void
 ev_view_zoom (EvView *view, gdouble factor)
 {
-	gdouble scale;
+	gdouble scale, old_scale;
 	EvViewPrivate *priv = GET_PRIVATE (view);
 
 	g_return_if_fail (priv->sizing_mode == EV_SIZING_FREE);
 
+	old_scale = ev_document_model_get_scale (priv->model);
 	priv->pending_scroll = SCROLL_TO_CENTER;
-	scale = ev_document_model_get_scale (priv->model) * factor;
+	scale = old_scale * factor;
 	ev_document_model_set_scale (priv->model, scale);
+	if (ABS (ev_document_model_get_scale (priv->model) - old_scale) < EPSILON) {
+		priv->pending_scroll = SCROLL_TO_KEEP_POSITION;
+		priv->zoom_anchor_valid = FALSE;
+		priv->zoom_anchor_pending_x = FALSE;
+		priv->zoom_anchor_pending_y = FALSE;
+		priv->zoom_center_x = -1.0;
+		priv->zoom_center_y = -1.0;
+	}
 }
 
 void
