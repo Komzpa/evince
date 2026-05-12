@@ -98,6 +98,16 @@ evince = executable(
   install: true,
 )
 
+test_sidebar_thumbnails = executable(
+  'test-sidebar-thumbnails',
+  'test-sidebar-thumbnails.c',
+  include_directories: top_inc,
+  dependencies: glib_dep,
+  c_args: '-DEVINCE_COMPILATION',
+)
+
+test('test-sidebar-thumbnails', test_sidebar_thumbnails)
+
 if enable_dbus
   evinced_sources = files('ev-daemon.c')
 

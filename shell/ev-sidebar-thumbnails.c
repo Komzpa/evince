@@ -38,11 +38,12 @@
 #include "ev-job-scheduler.h"
 #include "ev-sidebar.h"
 #include "ev-sidebar-page.h"
+#include "ev-sidebar-thumbnails-private.h"
 #include "ev-sidebar-thumbnails.h"
 #include "ev-utils.h"
 #include "ev-window.h"
 
-#define THUMBNAIL_WIDTH 100
+#define THUMBNAIL_WIDTH EV_SIDEBAR_THUMBNAIL_WIDTH
 
 typedef struct _EvThumbsSize
 {
@@ -368,14 +369,11 @@ ev_sidebar_thumbnails_get_loading_icon (EvSidebarThumbnails *sidebar_thumbnails,
 	icon = g_hash_table_lookup (priv->loading_icons, key);
 	if (!icon) {
 		gboolean inverted_colors;
-                gint device_scale = 1;
-
-                device_scale = gtk_widget_get_scale_factor (GTK_WIDGET (sidebar_thumbnails));
 
 		inverted_colors = ev_document_model_get_inverted_colors (priv->model);
                 icon = ev_document_misc_render_loading_thumbnail_surface (GTK_WIDGET (sidebar_thumbnails),
-                                                                          width * device_scale,
-                                                                          height * device_scale,
+                                                                          width,
+                                                                          height,
                                                                           inverted_colors);
 		g_hash_table_insert (priv->loading_icons, key, icon);
 	} else {
@@ -437,19 +435,10 @@ get_size_for_page (EvSidebarThumbnails *sidebar_thumbnails,
 {
 	EvSidebarThumbnailsPrivate *priv = sidebar_thumbnails->priv;
         gdouble width, height;
-        gint thumbnail_height, device_scale;
 
-        device_scale = gtk_widget_get_scale_factor (GTK_WIDGET (sidebar_thumbnails));
         ev_document_get_page_size (priv->document, page, &width, &height);
-        thumbnail_height = (int)(THUMBNAIL_WIDTH * height / width + 0.5);
-
-        if (priv->rotation == 90 || priv->rotation == 270) {
-                *width_return = thumbnail_height * device_scale;
-                *height_return = THUMBNAIL_WIDTH * device_scale;
-        } else {
-                *width_return = THUMBNAIL_WIDTH * device_scale;
-                *height_return = thumbnail_height * device_scale;
-        }
+	ev_sidebar_thumbnails_get_target_size (width, height, priv->rotation,
+					       width_return, height_return);
 }
 
 static void
@@ -850,13 +839,9 @@ thumbnail_job_completed_callback (EvJobThumbnailCairo *job,
 	GtkTreeIter                *iter;
         cairo_surface_t            *surface;
 	GdkTexture                 *texture;
-        gint                        device_scale;
 
         if (ev_job_is_failed (EV_JOB (job)))
           return;
-
-        device_scale = gtk_widget_get_scale_factor (widget);
-        cairo_surface_set_device_scale (job->thumbnail_surface, device_scale, device_scale);
 
         surface = ev_document_misc_render_thumbnail_surface_with_frame (widget,
                                                                         job->thumbnail_surface,
