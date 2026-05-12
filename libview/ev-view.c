@@ -2643,7 +2643,7 @@ ev_view_form_field_text_save (EvView    *view,
 }
 
 static void
-ev_view_form_field_text_changed (GtkWidget   *widget,
+ev_view_form_field_text_changed (gpointer     widget,
 				 EvFormField *field)
 {
 	EvFormFieldText *field_text = EV_FORM_FIELD_TEXT (field);
@@ -2787,7 +2787,50 @@ ev_view_form_field_choice_save (EvView    *view,
 }
 
 static void
-ev_view_form_field_choice_changed (GtkWidget   *widget,
+ev_view_form_field_choice_changed (gpointer     widget,
+				   EvFormField *field);
+
+void
+ev_view_sync_form_fields (EvView *view)
+{
+	EvViewPrivate *priv;
+
+	g_return_if_fail (EV_IS_VIEW (view));
+
+	priv = GET_PRIVATE (view);
+
+	if (!EV_IS_DOCUMENT_FORMS (priv->document))
+		return;
+
+	for (GtkWidget *child = gtk_widget_get_first_child (GTK_WIDGET (view));
+	     child != NULL;
+	     child = gtk_widget_get_next_sibling (child)) {
+		EvFormField *field = g_object_get_data (G_OBJECT (child), "form-field");
+
+		if (!field)
+			continue;
+
+		if (EV_IS_FORM_FIELD_TEXT (field)) {
+			if (GTK_IS_ENTRY (child)) {
+				ev_view_form_field_text_changed (child, field);
+			} else if (GTK_IS_TEXT_VIEW (child)) {
+				ev_view_form_field_text_changed (
+					gtk_text_view_get_buffer (GTK_TEXT_VIEW (child)),
+					field);
+			}
+
+			ev_view_form_field_text_save (view, child);
+		} else if (EV_IS_FORM_FIELD_CHOICE (field)) {
+			if (GTK_IS_COMBO_BOX (child))
+				ev_view_form_field_choice_changed (child, field);
+
+			ev_view_form_field_choice_save (view, child);
+		}
+	}
+}
+
+static void
+ev_view_form_field_choice_changed (gpointer     widget,
 				   EvFormField *field)
 {
 	EvFormFieldChoice *field_choice = EV_FORM_FIELD_CHOICE (field);
