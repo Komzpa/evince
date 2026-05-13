@@ -101,6 +101,16 @@ libevview_dep = declare_dependency(
   link_with: libevview,
 )
 
+test_job_scheduler = executable(
+  'test-job-scheduler',
+  'test-job-scheduler.c',
+  include_directories: top_inc,
+  dependencies: libevview_dep,
+  c_args: cflags,
+)
+
+test('job-scheduler', test_job_scheduler)
+
 pkg.generate(
   libevview,
   filebase: 'evince-view-' + ev_api_version,
