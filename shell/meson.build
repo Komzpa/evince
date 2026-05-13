@@ -102,7 +102,7 @@ test_sidebar_thumbnails = executable(
   'test-sidebar-thumbnails',
   'test-sidebar-thumbnails.c',
   include_directories: top_inc,
-  dependencies: glib_dep,
+  dependencies: [gtk_dep, cairo_dep],
   c_args: '-DEVINCE_COMPILATION',
 )
 
