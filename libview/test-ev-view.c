@@ -146,6 +146,14 @@ test_zoom_center_for_scroll_uses_widget_center_last (void)
 	g_assert_cmpfloat (y, ==, 300.0);
 }
 
+static void
+test_range_update_queues_draw_for_pending_resize (void)
+{
+	g_assert_true (ev_view_should_queue_draw_after_range_update (TRUE, FALSE));
+	g_assert_true (ev_view_should_queue_draw_after_range_update (FALSE, TRUE));
+	g_assert_false (ev_view_should_queue_draw_after_range_update (FALSE, FALSE));
+}
+
 int
 main (int argc, char **argv)
 {
@@ -167,6 +175,8 @@ main (int argc, char **argv)
 			 test_zoom_center_for_scroll_uses_pointer_fallback);
 	g_test_add_func ("/ev-view/zoom-center-for-scroll/widget-center-last",
 			 test_zoom_center_for_scroll_uses_widget_center_last);
+	g_test_add_func ("/ev-view/range-update/queues-draw-for-pending-resize",
+			 test_range_update_queues_draw_for_pending_resize);
 
 	if (!gtk_init_check ()) {
 		g_test_add_func ("/ev-view/scroll-controller-installed",

@@ -430,6 +430,14 @@ ev_view_zoom_center_for_scroll (gboolean event_has_position,
 		*y = widget_height / 2.0;
 	}
 }
+
+static inline gboolean
+ev_view_should_queue_draw_after_range_update (gboolean current_page_has_texture,
+					      gboolean pending_resize)
+{
+	return current_page_has_texture || pending_resize;
+}
+
 void _ev_view_clear_selection (EvView   *view);
 void _ev_view_set_selection   (EvView   *view,
 			       GdkPoint *start_point,

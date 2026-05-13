@@ -851,7 +851,9 @@ view_update_range_and_current_page (EvView *view)
 						   priv->end_page);
 #endif
 
-	if (ev_pixbuf_cache_get_texture (priv->pixbuf_cache, priv->current_page))
+	if (ev_view_should_queue_draw_after_range_update (
+		    ev_pixbuf_cache_get_texture (priv->pixbuf_cache, priv->current_page) != NULL,
+		    priv->pending_resize))
 		gtk_widget_queue_draw (GTK_WIDGET (view));
 }
 
