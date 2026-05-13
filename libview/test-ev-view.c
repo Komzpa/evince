@@ -162,6 +162,18 @@ test_scale_change_queues_draw (void)
 }
 
 static void
+test_scale_change_updates_existing_page_range (void)
+{
+	g_assert_true (ev_view_should_update_range_after_scale_change (TRUE, TRUE, TRUE, 0, 0));
+	g_assert_true (ev_view_should_update_range_after_scale_change (TRUE, TRUE, TRUE, 2, 4));
+	g_assert_false (ev_view_should_update_range_after_scale_change (FALSE, TRUE, TRUE, 0, 0));
+	g_assert_false (ev_view_should_update_range_after_scale_change (TRUE, FALSE, TRUE, 0, 0));
+	g_assert_false (ev_view_should_update_range_after_scale_change (TRUE, TRUE, FALSE, 0, 0));
+	g_assert_false (ev_view_should_update_range_after_scale_change (TRUE, TRUE, TRUE, -1, -1));
+	g_assert_false (ev_view_should_update_range_after_scale_change (TRUE, TRUE, TRUE, 4, 2));
+}
+
+static void
 test_size_allocate_runs_for_zoom_resize_while_loading (void)
 {
 	g_assert_true (ev_view_should_handle_size_allocate (TRUE, FALSE, FALSE));
@@ -195,6 +207,8 @@ main (int argc, char **argv)
 			 test_range_update_queues_draw_for_pending_resize);
 	g_test_add_func ("/ev-view/scale-change/queues-draw",
 			 test_scale_change_queues_draw);
+	g_test_add_func ("/ev-view/scale-change/updates-existing-page-range",
+			 test_scale_change_updates_existing_page_range);
 	g_test_add_func ("/ev-view/size-allocate/runs-for-zoom-resize-while-loading",
 			 test_size_allocate_runs_for_zoom_resize_while_loading);
 

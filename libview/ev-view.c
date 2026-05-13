@@ -8980,6 +8980,12 @@ ev_view_scale_changed_cb (EvDocumentModel *model,
 	priv->scale = scale;
 
 	priv->pending_resize = TRUE;
+	if (ev_view_should_update_range_after_scale_change (priv->document != NULL,
+							    priv->pixbuf_cache != NULL,
+							    priv->page_cache != NULL,
+							    priv->start_page,
+							    priv->end_page))
+		view_update_range_and_current_page (view);
 	if (priv->sizing_mode == EV_SIZING_FREE)
 		gtk_widget_queue_resize (GTK_WIDGET (view));
 	if (ev_view_should_queue_draw_after_scale_change (TRUE))
