@@ -79,6 +79,7 @@
 #include "ev-view-presentation.h"
 #include "ev-view-type-builtins.h"
 #include "ev-window.h"
+#include "ev-window-metadata-private.h"
 #include "ev-window-private.h"
 #include "ev-window-title.h"
 #include "ev-print-operation.h"
@@ -1289,7 +1290,6 @@ setup_model_from_metadata (EvWindow *window)
 	gboolean dual_page = FALSE;
 	gboolean dual_page_odd_left = FALSE;
 	gboolean rtl = FALSE;
-	gboolean fullscreen = FALSE;
 	EvWindowPrivate *priv = GET_PRIVATE (window);
 
 	if (!priv->metadata)
@@ -1363,11 +1363,6 @@ setup_model_from_metadata (EvWindow *window)
 		ev_document_model_set_rtl (priv->model, rtl);
 	}
 
-	/* Fullscreen */
-	if (ev_metadata_get_boolean (priv->metadata, "fullscreen", &fullscreen)) {
-		if (fullscreen)
-			ev_window_run_fullscreen (window);
-	}
 }
 
 static void
@@ -1490,16 +1485,28 @@ setup_size_from_metadata (EvWindow *window)
 static void
 setup_view_from_metadata (EvWindow *window)
 {
-	gboolean presentation;
+	gboolean fullscreen = FALSE;
+	gboolean presentation = FALSE;
+	gboolean has_fullscreen;
+	gboolean has_presentation;
 	EvWindowPrivate *priv = GET_PRIVATE (window);
 
 	if (!priv->metadata)
 		return;
 
-	/* Presentation */
-	if (ev_metadata_get_boolean (priv->metadata, "presentation", &presentation)) {
-		if (presentation)
-			ev_window_run_presentation (window);
+	has_fullscreen = ev_metadata_get_boolean (priv->metadata, "fullscreen", &fullscreen);
+	has_presentation = ev_metadata_get_boolean (priv->metadata, "presentation", &presentation);
+
+	switch (ev_window_metadata_document_mode (has_fullscreen, fullscreen,
+						 has_presentation, presentation)) {
+	case EV_WINDOW_METADATA_DOCUMENT_MODE_PRESENTATION:
+		ev_window_run_presentation (window);
+		break;
+	case EV_WINDOW_METADATA_DOCUMENT_MODE_FULLSCREEN:
+		ev_window_run_fullscreen (window);
+		break;
+	case EV_WINDOW_METADATA_DOCUMENT_MODE_NONE:
+		break;
 	}
 
 	/* Caret navigation mode */
