@@ -31,10 +31,12 @@ G_LOCK_DEFINE_STATIC(job_list);
 static GSList *job_list = NULL;
 
 static EvJob *running_job = NULL;
+static gint pending_job_frees = 0;
 
 static gpointer ev_job_thread_proxy               (gpointer        data);
 static void     ev_scheduler_thread_job_cancelled (EvSchedulerJob *job,
 						   GCancellable   *cancellable);
+static gboolean ev_scheduler_job_free_on_main     (gpointer        data);
 
 /* EvJobQueue */
 static GQueue queue_urgent = G_QUEUE_INIT;
@@ -118,11 +120,27 @@ ev_scheduler_job_list_remove (EvSchedulerJob *job)
 static void
 ev_scheduler_job_free (EvSchedulerJob *job)
 {
+	GSource *source;
+
 	if (!job)
 		return;
 
+	source = g_idle_source_new ();
+	g_source_set_callback (source, ev_scheduler_job_free_on_main, job, NULL);
+	g_source_attach (source, NULL);
+	g_source_unref (source);
+}
+
+static gboolean
+ev_scheduler_job_free_on_main (gpointer data)
+{
+	EvSchedulerJob *job = data;
+
 	g_object_unref (job->job);
 	g_free (job);
+	g_atomic_int_dec_and_test (&pending_job_frees);
+
+	return G_SOURCE_REMOVE;
 }
 
 static void
@@ -140,6 +158,7 @@ ev_scheduler_job_destroy (EvSchedulerJob *job)
 						      job);
 	}
 
+	g_atomic_int_inc (&pending_job_frees);
 	ev_scheduler_job_list_remove (job);
 	ev_scheduler_job_free (job);
 }
@@ -329,8 +348,12 @@ ev_job_scheduler_wait (void)
 {
 	ev_debug_message (DEBUG_JOBS, "Waiting for empty job list");
 
-	while (job_list != NULL)
-		g_usleep (100);
+	while (job_list != NULL || g_atomic_int_get (&pending_job_frees) > 0) {
+		if (g_main_context_pending (NULL))
+			g_main_context_iteration (NULL, FALSE);
+		else
+			g_usleep (100);
+	}
 
 	ev_debug_message (DEBUG_JOBS, "Job list is empty");
 }
