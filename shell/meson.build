@@ -108,6 +108,16 @@ test_sidebar_thumbnails = executable(
 
 test('test-sidebar-thumbnails', test_sidebar_thumbnails)
 
+test_window_fullscreen = executable(
+  'test-window-fullscreen',
+  'test-window-fullscreen.c',
+  include_directories: top_inc,
+  dependencies: glib_dep,
+  c_args: '-DEVINCE_COMPILATION',
+)
+
+test('test-window-fullscreen', test_window_fullscreen)
+
 if enable_dbus
   evinced_sources = files('ev-daemon.c')
 
