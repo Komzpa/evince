@@ -1,6 +1,6 @@
 input = 'evince.thumbnailer'
 
-configure_file(
+thumbnailer_desktop = configure_file(
   input: input + '.in',
   output: input,
   configuration: mime_types_conf,
@@ -35,3 +35,12 @@ test_thumbnailer_watchdog = executable(
 )
 
 test(test_name, test_thumbnailer_watchdog)
+
+test(
+  'test-thumbnailer-mime-types',
+  find_program('test-thumbnailer-mime-types.py'),
+  args: [
+    thumbnailer_desktop,
+    enable_pdf.to_string(),
+  ],
+)
