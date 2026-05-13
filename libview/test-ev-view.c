@@ -155,6 +155,13 @@ test_range_update_queues_draw_for_pending_resize (void)
 }
 
 static void
+test_scale_change_queues_draw (void)
+{
+	g_assert_true (ev_view_should_queue_draw_after_scale_change (TRUE));
+	g_assert_false (ev_view_should_queue_draw_after_scale_change (FALSE));
+}
+
+static void
 test_size_allocate_runs_for_zoom_resize_while_loading (void)
 {
 	g_assert_true (ev_view_should_handle_size_allocate (TRUE, FALSE, FALSE));
@@ -186,6 +193,8 @@ main (int argc, char **argv)
 			 test_zoom_center_for_scroll_uses_widget_center_last);
 	g_test_add_func ("/ev-view/range-update/queues-draw-for-pending-resize",
 			 test_range_update_queues_draw_for_pending_resize);
+	g_test_add_func ("/ev-view/scale-change/queues-draw",
+			 test_scale_change_queues_draw);
 	g_test_add_func ("/ev-view/size-allocate/runs-for-zoom-resize-while-loading",
 			 test_size_allocate_runs_for_zoom_resize_while_loading);
 
