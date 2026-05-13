@@ -40,6 +40,7 @@
 #include <glib/gi18n-lib.h>
 
 #include "ev-poppler.h"
+#include "ev-poppler-private.h"
 #include "ev-file-exporter.h"
 #include "ev-document-find.h"
 #include "ev-document-misc.h"
@@ -3128,6 +3129,9 @@ pdf_document_annotations_add_annotation (EvDocumentAnnotations *document_annotat
 			icon = ev_annotation_text_get_icon (text);
 			poppler_annot_text_set_icon (POPPLER_ANNOT_TEXT (poppler_annot),
 						     get_poppler_annot_text_icon (icon));
+			poppler_annot_set_flags (poppler_annot,
+						 ev_poppler_annot_text_icon_display_flags (
+							 poppler_annot_get_flags (poppler_annot)));
 			}
 			break;
 		case EV_ANNOTATION_TYPE_TEXT_MARKUP: {
