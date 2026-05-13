@@ -33,6 +33,7 @@
 #include "ev-page-action-widget.h"
 
 #include "ev-previewer-window.h"
+#include "ev-previewer-window-private.h"
 
 struct _EvPreviewerWindow {
 	AdwApplicationWindow base_instance;
@@ -386,9 +387,6 @@ ev_previewer_window_init (EvPreviewerWindow *window)
 	g_action_map_add_action_entries (G_ACTION_MAP (window),
 					 actions, G_N_ELEMENTS (actions),
 					 window);
-#if GTKUNIXPRINT_ENABLED
-	ev_previewer_window_set_print_enabled (window, FALSE);
-#endif
 }
 
 static void
@@ -481,7 +479,8 @@ ev_previewer_window_set_print_settings_take_file (EvPreviewerWindow *window,
         g_clear_object (&window->print_page_setup);
         g_clear_pointer (&window->print_job_title, g_free);
 #if GTKUNIXPRINT_ENABLED
-	ev_previewer_window_set_print_enabled (window, FALSE);
+	ev_previewer_window_set_print_enabled (window,
+					       ev_previewer_print_action_enabled_for_settings (TRUE, FALSE));
 #endif
 
         bytes = g_mapped_file_get_bytes (file);
@@ -521,7 +520,8 @@ ev_previewer_window_set_print_settings_take_file (EvPreviewerWindow *window,
         g_key_file_free (key_file);
 
 #if GTKUNIXPRINT_ENABLED
-	ev_previewer_window_set_print_enabled (window, TRUE);
+	ev_previewer_window_set_print_enabled (window,
+					       ev_previewer_print_action_enabled_for_settings (TRUE, TRUE));
 #endif
 
         return TRUE;
@@ -535,12 +535,17 @@ ev_previewer_window_set_print_settings (EvPreviewerWindow *window,
         GMappedFile *file;
 
         g_return_val_if_fail (EV_IS_PREVIEWER_WINDOW (window), FALSE);
-        g_return_val_if_fail (print_settings != NULL, FALSE);
-        g_return_val_if_fail (error == NULL || *error == NULL, FALSE);
+	g_return_val_if_fail (print_settings != NULL, FALSE);
+	g_return_val_if_fail (error == NULL || *error == NULL, FALSE);
 
-        file = g_mapped_file_new (print_settings, FALSE, error);
-        if (file == NULL)
-                return FALSE;
+#if GTKUNIXPRINT_ENABLED
+	ev_previewer_window_set_print_enabled (window,
+					       ev_previewer_print_action_enabled_for_settings (TRUE, FALSE));
+#endif
+
+	file = g_mapped_file_new (print_settings, FALSE, error);
+	if (file == NULL)
+		return FALSE;
 
         return ev_previewer_window_set_print_settings_take_file (window, file, error);
 }
@@ -563,12 +568,17 @@ ev_previewer_window_set_print_settings_fd (EvPreviewerWindow *window,
         GMappedFile *file;
 
         g_return_val_if_fail (EV_IS_PREVIEWER_WINDOW (window), FALSE);
-        g_return_val_if_fail (fd != -1, FALSE);
-        g_return_val_if_fail (error == NULL || *error == NULL, FALSE);
+	g_return_val_if_fail (fd != -1, FALSE);
+	g_return_val_if_fail (error == NULL || *error == NULL, FALSE);
 
-        file = g_mapped_file_new_from_fd (fd, FALSE, error);
-        if (file == NULL)
-                return FALSE;
+#if GTKUNIXPRINT_ENABLED
+	ev_previewer_window_set_print_enabled (window,
+					       ev_previewer_print_action_enabled_for_settings (TRUE, FALSE));
+#endif
+
+	file = g_mapped_file_new_from_fd (fd, FALSE, error);
+	if (file == NULL)
+		return FALSE;
 
         return ev_previewer_window_set_print_settings_take_file (window, file, error);
 }
