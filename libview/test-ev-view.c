@@ -182,6 +182,15 @@ test_size_allocate_runs_for_zoom_resize_while_loading (void)
 	g_assert_false (ev_view_should_handle_size_allocate (FALSE, FALSE, TRUE));
 }
 
+static void
+test_pixbuf_cache_preserves_completed_pending_render (void)
+{
+	g_assert_true (ev_pixbuf_cache_should_preserve_completed_job (FALSE, FALSE, TRUE));
+	g_assert_false (ev_pixbuf_cache_should_preserve_completed_job (TRUE, FALSE, TRUE));
+	g_assert_false (ev_pixbuf_cache_should_preserve_completed_job (FALSE, TRUE, TRUE));
+	g_assert_false (ev_pixbuf_cache_should_preserve_completed_job (FALSE, FALSE, FALSE));
+}
+
 int
 main (int argc, char **argv)
 {
@@ -211,6 +220,8 @@ main (int argc, char **argv)
 			 test_scale_change_updates_existing_page_range);
 	g_test_add_func ("/ev-view/size-allocate/runs-for-zoom-resize-while-loading",
 			 test_size_allocate_runs_for_zoom_resize_while_loading);
+	g_test_add_func ("/ev-view/pixbuf-cache/preserves-completed-pending-render",
+			 test_pixbuf_cache_preserves_completed_pending_render);
 
 	if (!gtk_init_check ()) {
 		g_test_add_func ("/ev-view/scroll-controller-installed",
