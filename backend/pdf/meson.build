@@ -15,3 +15,13 @@ test_ev_poppler_annotations = executable(
 )
 
 test('test-ev-poppler-annotations', test_ev_poppler_annotations)
+
+test_ev_poppler_links = executable(
+  'test-ev-poppler-links',
+  'test-ev-poppler-links.c',
+  include_directories: top_inc,
+  dependencies: glib_dep,
+  c_args: '-DEVINCE_COMPILATION',
+)
+
+test('test-ev-poppler-links', test_ev_poppler_links)
