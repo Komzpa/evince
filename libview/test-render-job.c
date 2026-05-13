@@ -122,6 +122,7 @@ test_render_texture_job_produces_page_pixels (void)
 
 	g_assert_true (finished_signal);
 	g_assert_false (ev_job_is_failed (job));
+	g_assert_true (render_job->page_ready);
 	g_assert_nonnull (render_job->texture);
 	g_assert_cmpuint (count_nonwhite_texture_pixels (render_job->texture), >, 160 * 120 / 2);
 
