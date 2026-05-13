@@ -77,6 +77,7 @@ struct _EvSidebarThumbnailsPrivate {
 					 * for dual mode with !odd_left preference. Issue #30 */
 	/* Visible pages */
 	gint start_page, end_page;
+	guint adjustment_changed_idle_id;
 };
 
 enum {
@@ -264,6 +265,8 @@ ev_sidebar_thumbnails_dispose (GObject *object)
 {
 	EvSidebarThumbnails *sidebar_thumbnails = EV_SIDEBAR_THUMBNAILS (object);
 
+	g_clear_handle_id (&sidebar_thumbnails->priv->adjustment_changed_idle_id,
+			   g_source_remove);
 	g_clear_pointer (&sidebar_thumbnails->priv->loading_icons,
 			 g_hash_table_destroy);
 
@@ -317,7 +320,7 @@ ev_sidebar_thumbnails_map (GtkWidget *widget)
 
 	GTK_WIDGET_CLASS (ev_sidebar_thumbnails_parent_class)->map (widget);
 
-	adjustment_changed_cb (sidebar);
+	schedule_adjustment_changed_cb (sidebar);
 }
 
 static void
@@ -348,6 +351,7 @@ ev_sidebar_thumbnails_size_allocate (GtkWidget	*widget,
 
                 /* Might have a new number of columns, reset current page */
                 ev_sidebar_check_reset_current_page (sidebar);
+		schedule_adjustment_changed_cb (sidebar);
         }
 }
 
@@ -378,9 +382,10 @@ ev_sidebar_thumbnails_get_loading_icon (EvSidebarThumbnails *sidebar_thumbnails,
 									  width * device_scale,
 									  height * device_scale,
 									  inverted_colors);
-		g_hash_table_insert (priv->loading_icons, key, icon);
+		g_hash_table_insert (priv->loading_icons, key, cairo_surface_reference (icon));
 	} else {
 		g_free (key);
+		cairo_surface_reference (icon);
 	}
 
 	return icon;
@@ -565,8 +570,16 @@ adjustment_changed_cb (EvSidebarThumbnails *sidebar_thumbnails)
 	if (priv->icon_view) {
 		if (! gtk_widget_get_realized (priv->icon_view))
 			return;
-		if (! gtk_icon_view_get_visible_range (GTK_ICON_VIEW (priv->icon_view), &path, &path2))
+		if (! gtk_icon_view_get_visible_range (GTK_ICON_VIEW (priv->icon_view), &path, &path2)) {
+			gint page;
+
+			if (!priv->model)
+				return;
+
+			page = ev_document_model_get_page (priv->model);
+			update_visible_range (sidebar_thumbnails, page, page);
 			return;
+		}
 	} else {
 		return;
 	}
@@ -584,6 +597,9 @@ adjustment_changed_cb (EvSidebarThumbnails *sidebar_thumbnails)
 static gboolean
 adjustment_changed_idle_cb (gpointer user_data)
 {
+	EvSidebarThumbnails *sidebar_thumbnails = EV_SIDEBAR_THUMBNAILS (user_data);
+
+	sidebar_thumbnails->priv->adjustment_changed_idle_id = 0;
 	adjustment_changed_cb (EV_SIDEBAR_THUMBNAILS (user_data));
 
 	return G_SOURCE_REMOVE;
@@ -592,42 +608,14 @@ adjustment_changed_idle_cb (gpointer user_data)
 static void
 schedule_adjustment_changed_cb (EvSidebarThumbnails *sidebar_thumbnails)
 {
-	GSource *source;
+	if (sidebar_thumbnails->priv->adjustment_changed_idle_id != 0)
+		return;
 
-	source = g_idle_source_new ();
-	g_source_set_callback (source,
-			       adjustment_changed_idle_cb,
-			       g_object_ref (sidebar_thumbnails),
-			       g_object_unref);
-	g_source_attach (source, NULL);
-	g_source_unref (source);
-}
-
-static GdkTexture *
-gdk_texture_new_for_surface (cairo_surface_t *surface)
-{
-  GdkTexture *texture;
-  GBytes *bytes;
-
-  g_return_val_if_fail (cairo_surface_get_type (surface) == CAIRO_SURFACE_TYPE_IMAGE, NULL);
-  g_return_val_if_fail (cairo_image_surface_get_width (surface) > 0, NULL);
-  g_return_val_if_fail (cairo_image_surface_get_height (surface) > 0, NULL);
-
-  bytes = g_bytes_new_with_free_func (cairo_image_surface_get_data (surface),
-                                      cairo_image_surface_get_height (surface)
-                                      * cairo_image_surface_get_stride (surface),
-                                      (GDestroyNotify) cairo_surface_destroy,
-                                      cairo_surface_reference (surface));
-
-  texture = gdk_memory_texture_new (cairo_image_surface_get_width (surface),
-                                    cairo_image_surface_get_height (surface),
-                                    GDK_MEMORY_DEFAULT,
-                                    bytes,
-                                    cairo_image_surface_get_stride (surface));
-
-  g_bytes_unref (bytes);
-
-  return texture;
+	sidebar_thumbnails->priv->adjustment_changed_idle_id =
+		g_idle_add_full (G_PRIORITY_DEFAULT_IDLE,
+				 adjustment_changed_idle_cb,
+				 g_object_ref (sidebar_thumbnails),
+				 g_object_unref);
 }
 
 static void
@@ -660,7 +648,7 @@ ev_sidebar_thumbnails_fill_model (EvSidebarThumbnails *sidebar_thumbnails)
 		prev_width = width;
 		prev_height = height;
 
-		texture = gdk_texture_new_for_surface (loading_icon);
+		texture = ev_sidebar_thumbnails_texture_new_for_surface (loading_icon);
 
 		gtk_list_store_append (priv->list_store, &iter);
 		gtk_list_store_set (priv->list_store, &iter,
@@ -668,6 +656,7 @@ ev_sidebar_thumbnails_fill_model (EvSidebarThumbnails *sidebar_thumbnails)
 				    COLUMN_SURFACE, texture,
 				    COLUMN_THUMBNAIL_SET, FALSE,
 				    -1);
+		g_object_unref (texture);
 		g_free (page_label);
 		g_free (page_string);
 		cairo_surface_destroy (loading_icon);
@@ -888,7 +877,7 @@ thumbnail_job_completed_callback (EvJobThumbnailCairo *job,
 	if (priv->inverted_colors)
 		ev_document_misc_invert_surface (surface);
 
-	texture = gdk_texture_new_for_surface (surface);
+	texture = ev_sidebar_thumbnails_texture_new_for_surface (surface);
 
 	gtk_list_store_set (priv->list_store,
 			    iter,
@@ -896,6 +885,7 @@ thumbnail_job_completed_callback (EvJobThumbnailCairo *job,
 			    COLUMN_THUMBNAIL_SET, TRUE,
 			    COLUMN_JOB, NULL,
 			    -1);
+	g_object_unref (texture);
         cairo_surface_destroy (surface);
 
 	gtk_widget_queue_draw (priv->icon_view);
