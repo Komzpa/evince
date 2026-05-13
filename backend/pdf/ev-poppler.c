@@ -40,6 +40,7 @@
 #include <glib/gi18n-lib.h>
 
 #include "ev-poppler.h"
+#include "ev-poppler-links-private.h"
 #include "ev-file-exporter.h"
 #include "ev-document-find.h"
 #include "ev-document-misc.h"
@@ -1289,6 +1290,7 @@ build_tree (PdfDocument      *pdf_document,
 
 		gtk_tree_store_append (GTK_TREE_STORE (model), &tree_iter, parent);
 		title_markup = g_markup_escape_text (ev_link_get_title (link), -1);
+		ev_poppler_outline_title_make_single_line (title_markup);
 
 		gtk_tree_store_set (GTK_TREE_STORE (model), &tree_iter,
 				    EV_DOCUMENT_LINKS_COLUMN_MARKUP, title_markup,

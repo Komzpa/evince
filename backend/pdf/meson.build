@@ -5,3 +5,13 @@ backend_deps = backends_common_deps + [
 ]
 
 backend_sources = files('ev-poppler.c')
+
+test_ev_poppler_links = executable(
+  'test-ev-poppler-links',
+  'test-ev-poppler-links.c',
+  include_directories: top_inc,
+  dependencies: glib_dep,
+  c_args: '-DEVINCE_COMPILATION',
+)
+
+test('test-ev-poppler-links', test_ev_poppler_links)
