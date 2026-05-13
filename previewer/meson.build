@@ -30,3 +30,13 @@ previewer = executable(
   link_args: common_ldflags,
   install: true,
 )
+
+test_previewer_print_settings = executable(
+  'test-previewer-print-settings',
+  'test-previewer-print-settings.c',
+  include_directories: top_inc,
+  dependencies: glib_dep,
+  c_args: '-DEVINCE_COMPILATION',
+)
+
+test('test-previewer-print-settings', test_previewer_print_settings)
