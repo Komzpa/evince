@@ -327,6 +327,20 @@ mime_types_list = {
   ],
 }
 
+thumbnailer_safe_mime_types = {
+  # The thumbnailer is launched automatically by file managers. Keep compressed
+  # document containers out of its advertised MIME set so a tiny .pdf.bz2/.dvi.gz
+  # cannot force unbounded temporary-file expansion during folder browsing.
+  'dvi': [
+    'application/x-dvi',
+    'application/x-ext-dvi',
+  ],
+  'pdf': [
+    'application/pdf',
+    'application/x-ext-pdf',
+  ],
+}
+
 backends = {}
 evince_mime_types = []
 thumbnailer_mime_types = []
@@ -389,7 +403,7 @@ if enable_dvi
 
   backends += {'dvi': mime_types_list.get('dvi')}
   evince_mime_types += mime_types_list.get('dvi')
-  thumbnailer_mime_types += mime_types_list.get('dvi')
+  thumbnailer_mime_types += thumbnailer_safe_mime_types.get('dvi')
 elif get_option('dvi').auto()
   warning('Dvi support is disabled since kpathsea library was not found. Check your installation.')
 endif
@@ -413,7 +427,7 @@ if enable_pdf
 
   backends += {'pdf': mime_types_list.get('pdf')}
   evince_mime_types += mime_types_list.get('pdf')
-  thumbnailer_mime_types += mime_types_list.get('pdf')
+  thumbnailer_mime_types += thumbnailer_safe_mime_types.get('pdf')
 elif get_option('pdf').auto()
   warning('PDF support is disabled since poppler-glib version ' + poppler_req_version + ' not found')
 endif
