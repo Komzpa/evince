@@ -4659,7 +4659,9 @@ ev_view_size_allocate (GtkWidget      *widget,
 	EvView *view = EV_VIEW (widget);
 	EvViewPrivate *priv = GET_PRIVATE (view);
 
-	if (!priv->document || ev_view_is_loading (view))
+	if (!ev_view_should_handle_size_allocate (priv->document != NULL,
+						 ev_view_is_loading (view),
+						 priv->pending_resize))
 		return;
 
 	if (priv->sizing_mode == EV_SIZING_FIT_WIDTH ||

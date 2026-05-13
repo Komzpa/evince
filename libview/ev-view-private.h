@@ -440,6 +440,14 @@ ev_view_should_queue_draw_after_range_update (gboolean current_page_has_texture,
 	return current_page_has_texture || pending_resize;
 }
 
+static inline gboolean
+ev_view_should_handle_size_allocate (gboolean has_document,
+				     gboolean loading,
+				     gboolean pending_resize)
+{
+	return has_document && (!loading || pending_resize);
+}
+
 void _ev_view_clear_selection (EvView   *view);
 void _ev_view_set_selection   (EvView   *view,
 			       GdkPoint *start_point,
