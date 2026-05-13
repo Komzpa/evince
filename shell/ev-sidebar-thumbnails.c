@@ -105,6 +105,7 @@ static void         thumbnail_job_completed_callback       (EvJobThumbnailCairo 
 							    EvSidebarThumbnails     *sidebar_thumbnails);
 static void         ev_sidebar_thumbnails_reload           (EvSidebarThumbnails     *sidebar_thumbnails);
 static void         adjustment_changed_cb                  (EvSidebarThumbnails     *sidebar_thumbnails);
+static void         schedule_adjustment_changed_cb         (EvSidebarThumbnails     *sidebar_thumbnails);
 static void         check_toggle_blank_first_dual_mode     (EvSidebarThumbnails     *sidebar_thumbnails);
 
 G_DEFINE_TYPE_EXTENDED (EvSidebarThumbnails,
@@ -580,6 +581,28 @@ adjustment_changed_cb (EvSidebarThumbnails *sidebar_thumbnails)
 	gtk_tree_path_free (path2);
 }
 
+static gboolean
+adjustment_changed_idle_cb (gpointer user_data)
+{
+	adjustment_changed_cb (EV_SIDEBAR_THUMBNAILS (user_data));
+
+	return G_SOURCE_REMOVE;
+}
+
+static void
+schedule_adjustment_changed_cb (EvSidebarThumbnails *sidebar_thumbnails)
+{
+	GSource *source;
+
+	source = g_idle_source_new ();
+	g_source_set_callback (source,
+			       adjustment_changed_idle_cb,
+			       g_object_ref (sidebar_thumbnails),
+			       g_object_unref);
+	g_source_attach (source, NULL);
+	g_source_unref (source);
+}
+
 static GdkTexture *
 gdk_texture_new_for_surface (cairo_surface_t *surface)
 {
@@ -815,7 +838,7 @@ ev_sidebar_thumbnails_reload (EvSidebarThumbnails *sidebar_thumbnails)
 	sidebar_thumbnails->priv->end_page = -1;
 	ev_sidebar_thumbnails_set_current_page (sidebar_thumbnails,
 						ev_document_model_get_page (model));
-	g_idle_add_once ((GSourceOnceFunc)adjustment_changed_cb, sidebar_thumbnails);
+	schedule_adjustment_changed_cb (sidebar_thumbnails);
 }
 
 static void
@@ -928,7 +951,7 @@ ev_sidebar_thumbnails_document_changed_cb (EvDocumentModel     *model,
 	sidebar_thumbnails->priv->end_page = -1;
 	ev_sidebar_thumbnails_set_current_page (sidebar_thumbnails,
 						ev_document_model_get_page (model));
-	adjustment_changed_cb (sidebar_thumbnails);
+	schedule_adjustment_changed_cb (sidebar_thumbnails);
 }
 
 static void

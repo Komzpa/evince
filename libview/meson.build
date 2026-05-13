@@ -162,3 +162,22 @@ test_ev_view = executable(
 )
 
 test(test_name, test_ev_view)
+
+if enable_pdf and cairo_pdf_dep.found()
+  test_name = 'test-thumbnail-render'
+
+  test_thumbnail_render = executable(
+    test_name,
+    'test-thumbnail-render.c',
+    include_directories: top_inc,
+    dependencies: [libevview_dep, cairo_pdf_dep],
+    c_args: '-DEVINCE_COMPILATION',
+  )
+
+  test(test_name, test_thumbnail_render,
+    depends: backend_modules + backend_descriptors,
+    env: {
+      'EV_BACKENDS_DIR': meson.project_build_root() / 'backend',
+    }
+  )
+endif
