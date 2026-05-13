@@ -161,9 +161,47 @@ ev_pixbuf_cache_finalize (GObject *object)
 }
 
 static void
-end_job (CacheJobInfo *job_info,
-	 gpointer      data)
+copy_job_texture_to_job_info (EvJobRenderTexture *job_render,
+			      CacheJobInfo     *job_info)
 {
+	g_clear_object (&job_info->texture);
+
+	job_info->texture = g_object_ref (job_render->texture);
+
+	job_info->points_set = FALSE;
+	if (job_render->include_selection) {
+		g_clear_object (&job_info->selection_texture);
+		g_clear_pointer (&job_info->selection_region, cairo_region_destroy);
+
+		job_info->selection_points = job_render->selection_points;
+		job_info->selection_scale = job_render->scale * job_info->device_scale;
+		g_assert (job_info->selection_points.x1 >= 0);
+
+		job_info->selection_region_points = job_render->selection_points;
+		job_info->selection_region = cairo_region_reference (job_render->selection_region);
+		job_info->selection_region_scale = job_render->scale;
+
+		job_info->selection_texture = g_object_ref (job_render->selection);
+		job_info->points_set = TRUE;
+	}
+
+	job_info->page_ready = TRUE;
+}
+
+static void
+end_job (CacheJobInfo *job_info,
+	 gpointer      data,
+	 gboolean      emit_completed)
+{
+	if (emit_completed &&
+	    EV_IS_JOB_RENDER_TEXTURE (job_info->job) &&
+	    ev_pixbuf_cache_should_preserve_completed_job (job_info->page_ready,
+							   ev_job_is_failed (job_info->job),
+							   EV_JOB_RENDER_TEXTURE (job_info->job)->page_ready)) {
+		copy_job_texture_to_job_info (EV_JOB_RENDER_TEXTURE (job_info->job), job_info);
+		g_signal_emit (data, signals[JOB_FINISHED], 0, job_info->region);
+	}
+
 	g_signal_handlers_disconnect_by_func (job_info->job,
 					      G_CALLBACK (job_finished_cb),
 					      data);
@@ -179,7 +217,7 @@ dispose_cache_job_info (CacheJobInfo *job_info,
 		return;
 
 	if (job_info->job)
-		end_job (job_info, data);
+		end_job (job_info, data, FALSE);
 
 	g_clear_object (&job_info->texture);
 	g_clear_object (&job_info->selection_texture);
@@ -284,31 +322,10 @@ copy_job_to_job_info (EvJobRenderTexture *job_render,
 		      CacheJobInfo     *job_info,
 		      EvPixbufCache    *pixbuf_cache)
 {
-	g_clear_object (&job_info->texture);
-
-	job_info->texture = g_object_ref (job_render->texture);
-
-	job_info->points_set = FALSE;
-	if (job_render->include_selection) {
-		g_clear_object (&job_info->selection_texture);
-		g_clear_pointer (&job_info->selection_region, cairo_region_destroy);
-
-		job_info->selection_points = job_render->selection_points;
-		job_info->selection_scale = job_render->scale * job_info->device_scale;
-		g_assert (job_info->selection_points.x1 >= 0);
-
-		job_info->selection_region_points = job_render->selection_points;
-		job_info->selection_region = cairo_region_reference (job_render->selection_region);
-		job_info->selection_region_scale = job_render->scale;
-
-		job_info->selection_texture = g_object_ref (job_render->selection);
-		job_info->points_set = TRUE;
-	}
+	copy_job_texture_to_job_info (job_render, job_info);
 
 	if (job_info->job)
-		end_job (job_info, pixbuf_cache);
-
-	job_info->page_ready = TRUE;
+		end_job (job_info, pixbuf_cache, FALSE);
 }
 
 static void
@@ -364,7 +381,7 @@ check_job_size_and_unref (EvPixbufCache *pixbuf_cache,
 			return;
 	}
 
-	end_job (job_info, pixbuf_cache);
+	end_job (job_info, pixbuf_cache, TRUE);
 }
 
 /* Do all function that copies a job from an older cache to it's position in the
@@ -657,7 +674,7 @@ add_job (EvPixbufCache  *pixbuf_cache,
 	job_info->region = region ? cairo_region_reference (region) : NULL;
 
 	if (job_info->job)
-		end_job (job_info, pixbuf_cache);
+		end_job (job_info, pixbuf_cache, TRUE);
 
 	job_info->job = ev_job_render_texture_new (pixbuf_cache->document,
 						 page, rotation,

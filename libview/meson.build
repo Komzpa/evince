@@ -190,4 +190,21 @@ if enable_pdf and cairo_pdf_dep.found()
       'EV_BACKENDS_DIR': meson.project_build_root() / 'backend',
     }
   )
+
+  test_name = 'test-render-job'
+
+  test_render_job = executable(
+    test_name,
+    'test-render-job.c',
+    include_directories: top_inc,
+    dependencies: [libevview_dep, cairo_pdf_dep],
+    c_args: '-DEVINCE_COMPILATION',
+  )
+
+  test(test_name, test_render_job,
+    depends: backend_modules + backend_descriptors,
+    env: {
+      'EV_BACKENDS_DIR': meson.project_build_root() / 'backend',
+    }
+  )
 endif

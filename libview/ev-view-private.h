@@ -468,6 +468,14 @@ ev_view_should_handle_size_allocate (gboolean has_document,
 	return has_document && (!loading || pending_resize);
 }
 
+static inline gboolean
+ev_pixbuf_cache_should_preserve_completed_job (gboolean cache_page_ready,
+					       gboolean job_failed,
+					       gboolean render_page_ready)
+{
+	return !cache_page_ready && !job_failed && render_page_ready;
+}
+
 void _ev_view_clear_selection (EvView   *view);
 void _ev_view_set_selection   (EvView   *view,
 			       GdkPoint *start_point,
