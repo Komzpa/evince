@@ -4,6 +4,8 @@ backends_common_cflags = [
   '-DEV_LOCALEDIR="@0@"'.format(ev_localedir),
   '-DEVINCE_COMPILATION',
 ]
+backend_modules = []
+backend_descriptors = []
 
 foreach backend, backend_mime_types: backends
   backend_name = backend + 'document'
@@ -15,7 +17,7 @@ foreach backend, backend_mime_types: backends
   backend_cflags = backends_common_cflags
   subdir(backend)
 
-  shared_module(
+  backend_module = shared_module(
     backend_name,
     sources: backend_sources,
     include_directories: backend_incs,
@@ -25,6 +27,7 @@ foreach backend, backend_mime_types: backends
     install: true,
     install_dir: ev_backendsdir,
   )
+  backend_modules += backend_module
 
   backend_mime_types_conf = configuration_data()
   backend_mime_types_conf.set(backend.to_upper() + '_MIME_TYPES', ';'.join(backend_mime_types))
@@ -44,7 +47,7 @@ foreach backend, backend_mime_types: backends
     configuration: backend_mime_types_conf,
   )
 
-  i18n.merge_file(
+  backend_descriptor = i18n.merge_file(
     type: 'desktop',
     input: backend_desc_in,
     output: backend_desc,
@@ -53,6 +56,7 @@ foreach backend, backend_mime_types: backends
     install_dir: ev_backendsdir,
     args: '--keyword=TypeDescription',
   )
+  backend_descriptors += backend_descriptor
 
   appstream = 'evince-@0@.metainfo.xml'.format(backend_name)
 
