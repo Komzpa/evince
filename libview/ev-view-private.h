@@ -445,6 +445,20 @@ ev_view_should_queue_draw_after_scale_change (gboolean scale_changed)
 }
 
 static inline gboolean
+ev_view_should_update_range_after_scale_change (gboolean has_document,
+						gboolean has_pixbuf_cache,
+						gboolean has_page_cache,
+						gint     start_page,
+						gint     end_page)
+{
+	return has_document &&
+	       has_pixbuf_cache &&
+	       has_page_cache &&
+	       start_page >= 0 &&
+	       end_page >= start_page;
+}
+
+static inline gboolean
 ev_view_should_handle_size_allocate (gboolean has_document,
 				     gboolean loading,
 				     gboolean pending_resize)
