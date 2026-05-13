@@ -14,6 +14,11 @@ mime_line = next(
 mime_types = set(filter(None, mime_line.removeprefix("MimeType=").split(";")))
 
 for mime_type in {
+    "application/x-bzdvi",
+    "application/x-gzdvi",
+    "application/x-bzpdf",
+    "application/x-gzpdf",
+    "application/x-xzpdf",
     "application/postscript",
     "application/x-bzpostscript",
     "application/x-gzpostscript",
@@ -29,7 +34,6 @@ for mime_type in {
 if expect_pdf:
     for mime_type in {
         "application/pdf",
-        "application/x-bzpdf",
-        "application/x-gzpdf",
+        "application/x-ext-pdf",
     }:
         assert mime_type in mime_types, mime_type
