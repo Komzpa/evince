@@ -79,6 +79,7 @@
 #include "ev-view-presentation.h"
 #include "ev-view-type-builtins.h"
 #include "ev-window.h"
+#include "ev-window-private.h"
 #include "ev-window-title.h"
 #include "ev-print-operation.h"
 #include "ev-progress-message-area.h"
@@ -210,6 +211,7 @@ typedef struct {
 #endif
 
         guint presentation_mode_inhibit_id;
+	guint fullscreen_toolbar_hide_timeout_id;
 
 	/* Caret navigation */
 	GtkWidget *ask_caret_navigation_check;
@@ -4456,6 +4458,91 @@ ev_window_update_fullscreen_action (EvWindow *window,
 }
 
 static void
+ev_window_cancel_fullscreen_toolbar_hide (EvWindow *window)
+{
+	EvWindowPrivate *priv = GET_PRIVATE (window);
+
+	g_clear_handle_id (&priv->fullscreen_toolbar_hide_timeout_id, g_source_remove);
+}
+
+static gboolean
+ev_window_is_fullscreen_mode (EvWindow *window)
+{
+	return gtk_window_is_fullscreen (GTK_WINDOW (window));
+}
+
+static gboolean
+ev_window_fullscreen_toolbar_tracks_motion (EvWindow *window)
+{
+	EvWindowPrivate *priv = GET_PRIVATE (window);
+
+	return ev_window_fullscreen_toolbar_tracks_pointer (ev_window_is_fullscreen_mode (window),
+							   EV_WINDOW_IS_PRESENTATION (priv));
+}
+
+static void
+ev_window_set_fullscreen_toolbar_visible (EvWindow *window,
+					  gboolean  visible)
+{
+	EvWindowPrivate *priv = GET_PRIVATE (window);
+
+	gtk_widget_set_visible (priv->toolbar, visible);
+}
+
+static void
+ev_window_hide_fullscreen_toolbar_cb (EvWindow *window)
+{
+	EvWindowPrivate *priv = GET_PRIVATE (window);
+
+	priv->fullscreen_toolbar_hide_timeout_id = 0;
+	if (!ev_window_fullscreen_toolbar_timeout_hides (ev_window_is_fullscreen_mode (window))) {
+		ev_window_set_fullscreen_toolbar_visible (window, TRUE);
+		return;
+	}
+
+	if (EV_WINDOW_IS_PRESENTATION (priv))
+		return;
+
+	ev_window_set_fullscreen_toolbar_visible (window, FALSE);
+}
+
+static void
+ev_window_schedule_fullscreen_toolbar_hide (EvWindow *window)
+{
+	EvWindowPrivate *priv = GET_PRIVATE (window);
+
+	if (!ev_window_fullscreen_toolbar_tracks_motion (window))
+		return;
+
+	ev_window_cancel_fullscreen_toolbar_hide (window);
+	priv->fullscreen_toolbar_hide_timeout_id =
+		g_timeout_add_once (EV_WINDOW_FULLSCREEN_TOOLBAR_HIDE_DELAY_MS,
+				    (GSourceOnceFunc) ev_window_hide_fullscreen_toolbar_cb,
+				    window);
+}
+
+static void
+ev_window_fullscreen_motion_cb (GtkEventControllerMotion *controller,
+				gdouble                   x,
+				gdouble                   y,
+				EvWindow                 *window)
+{
+	EvWindowPrivate *priv = GET_PRIVATE (window);
+
+	if (!ev_window_fullscreen_toolbar_tracks_motion (window))
+		return;
+
+	if (ev_window_fullscreen_pointer_reveals_toolbar (y)) {
+		ev_window_set_fullscreen_toolbar_visible (window, TRUE);
+		ev_window_cancel_fullscreen_toolbar_hide (window);
+	} else if (ev_window_fullscreen_pointer_keeps_toolbar (y, gtk_widget_get_height (priv->toolbar))) {
+		ev_window_cancel_fullscreen_toolbar_hide (window);
+	} else if (ev_window_fullscreen_pointer_hides_toolbar (y, gtk_widget_get_height (priv->toolbar))) {
+		ev_window_schedule_fullscreen_toolbar_hide (window);
+	}
+}
+
+static void
 ev_window_run_fullscreen (EvWindow *window)
 {
 	EvWindowPrivate *priv = GET_PRIVATE (window);
@@ -4477,6 +4564,7 @@ ev_window_run_fullscreen (EvWindow *window)
 
 	if (fullscreen_window)
 		gtk_window_fullscreen (GTK_WINDOW (window));
+	ev_window_set_fullscreen_toolbar_visible (window, FALSE);
 	gtk_widget_grab_focus (priv->view);
 
 	if (priv->metadata && !ev_window_is_empty (window)) {
@@ -4492,12 +4580,14 @@ ev_window_stop_fullscreen (EvWindow *window,
 {
 	EvWindowPrivate *priv = GET_PRIVATE (window);
 
+	ev_window_cancel_fullscreen_toolbar_hide (window);
+	ev_window_set_fullscreen_toolbar_visible (window, TRUE);
+	adw_header_bar_set_show_end_title_buttons (ev_toolbar_get_header_bar (EV_TOOLBAR (priv->toolbar)), TRUE);
+
 	if (!gtk_window_is_fullscreen (GTK_WINDOW (window)))
 		return;
 
 	ev_window_update_fullscreen_action (window, FALSE);
-
-	adw_header_bar_set_show_end_title_buttons (ev_toolbar_get_header_bar (EV_TOOLBAR (priv->toolbar)), TRUE);
 
 	if (unfullscreen_window)
 		gtk_window_unfullscreen (GTK_WINDOW (window));
@@ -5864,6 +5954,7 @@ ev_window_dispose (GObject *object)
 
 	g_clear_handle_id (&priv->setup_document_idle, g_source_remove);
 	g_clear_handle_id (&priv->loading_message_timeout, g_source_remove);
+	g_clear_handle_id (&priv->fullscreen_toolbar_hide_timeout_id, g_source_remove);
 
 	g_clear_object (&priv->monitor);
 	g_clear_pointer (&priv->title, ev_window_title_free);
@@ -7111,6 +7202,12 @@ ev_window_init (EvWindow *ev_window)
 				 G_CALLBACK (scrolled_window_focus_in_cb),
 				 ev_window, 0);
 	gtk_widget_add_controller (priv->scrolled_window, controller);
+
+	controller = gtk_event_controller_motion_new ();
+	g_signal_connect_object (controller, "motion",
+				 G_CALLBACK (ev_window_fullscreen_motion_cb),
+				 ev_window, 0);
+	gtk_widget_add_controller (priv->main_box, controller);
 
 	g_signal_connect_object (priv->view, "annot-added",
 				 G_CALLBACK (view_annot_added),
