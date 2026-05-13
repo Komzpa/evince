@@ -98,6 +98,16 @@ evince = executable(
   install: true,
 )
 
+test_window_metadata = executable(
+  'test-window-metadata',
+  'test-window-metadata.c',
+  include_directories: top_inc,
+  dependencies: glib_dep,
+  c_args: '-DEVINCE_COMPILATION',
+)
+
+test('test-window-metadata', test_window_metadata)
+
 if enable_dbus
   evinced_sources = files('ev-daemon.c')
 
