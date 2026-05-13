@@ -369,12 +369,14 @@ ev_sidebar_thumbnails_get_loading_icon (EvSidebarThumbnails *sidebar_thumbnails,
 	icon = g_hash_table_lookup (priv->loading_icons, key);
 	if (!icon) {
 		gboolean inverted_colors;
+		gint device_scale;
 
+		device_scale = gtk_widget_get_scale_factor (GTK_WIDGET (sidebar_thumbnails));
 		inverted_colors = ev_document_model_get_inverted_colors (priv->model);
-                icon = ev_document_misc_render_loading_thumbnail_surface (GTK_WIDGET (sidebar_thumbnails),
-                                                                          width,
-                                                                          height,
-                                                                          inverted_colors);
+		icon = ev_document_misc_render_loading_thumbnail_surface (GTK_WIDGET (sidebar_thumbnails),
+									  width * device_scale,
+									  height * device_scale,
+									  inverted_colors);
 		g_hash_table_insert (priv->loading_icons, key, icon);
 	} else {
 		g_free (key);
@@ -434,11 +436,18 @@ get_size_for_page (EvSidebarThumbnails *sidebar_thumbnails,
                    gint                *height_return)
 {
 	EvSidebarThumbnailsPrivate *priv = sidebar_thumbnails->priv;
-        gdouble width, height;
+	gdouble page_width, page_height;
+	gint logical_width = 0;
+	gint logical_height = 0;
+	gint device_scale;
 
-        ev_document_get_page_size (priv->document, page, &width, &height);
-	ev_sidebar_thumbnails_get_target_size (width, height, priv->rotation,
-					       width_return, height_return);
+	device_scale = gtk_widget_get_scale_factor (GTK_WIDGET (sidebar_thumbnails));
+	ev_document_get_page_size (priv->document, page, &page_width, &page_height);
+	ev_sidebar_thumbnails_get_target_size (page_width, page_height, priv->rotation,
+					       &logical_width, &logical_height);
+
+	*width_return = logical_width * device_scale;
+	*height_return = logical_height * device_scale;
 }
 
 static void
@@ -470,7 +479,8 @@ add_range (EvSidebarThumbnails *sidebar_thumbnails,
 				    -1);
 
 		if (job == NULL && !thumbnail_set) {
-			gint thumbnail_width, thumbnail_height;
+			gint thumbnail_width = 0;
+			gint thumbnail_height = 0;
 			get_size_for_page (sidebar_thumbnails, page, &thumbnail_width, &thumbnail_height);
 
 			job = ev_job_thumbnail_cairo_new_with_target_size (priv->document,
@@ -839,13 +849,17 @@ thumbnail_job_completed_callback (EvJobThumbnailCairo *job,
 	GtkTreeIter                *iter;
         cairo_surface_t            *surface;
 	GdkTexture                 *texture;
+	gint                        device_scale;
 
-        if (ev_job_is_failed (EV_JOB (job)))
-          return;
+	if (ev_job_is_failed (EV_JOB (job)))
+	  return;
 
-        surface = ev_document_misc_render_thumbnail_surface_with_frame (widget,
-                                                                        job->thumbnail_surface,
-                                                                        -1, -1);
+	device_scale = gtk_widget_get_scale_factor (widget);
+	cairo_surface_set_device_scale (job->thumbnail_surface,
+					device_scale, device_scale);
+	surface = ev_document_misc_render_thumbnail_surface_with_frame (widget,
+									job->thumbnail_surface,
+									-1, -1);
 
 	iter = (GtkTreeIter *) g_object_get_data (G_OBJECT (job), "tree_iter");
 	if (priv->inverted_colors)
