@@ -8755,6 +8755,8 @@ ev_view_scale_changed_cb (EvDocumentModel *model,
 	priv->pending_resize = TRUE;
 	if (priv->sizing_mode == EV_SIZING_FREE)
 		gtk_widget_queue_resize (GTK_WIDGET (view));
+	if (ev_view_should_queue_draw_after_scale_change (TRUE))
+		gtk_widget_queue_draw (GTK_WIDGET (view));
 
 	update_can_zoom (view);
 }

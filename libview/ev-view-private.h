@@ -439,6 +439,12 @@ ev_view_should_queue_draw_after_range_update (gboolean current_page_has_texture,
 }
 
 static inline gboolean
+ev_view_should_queue_draw_after_scale_change (gboolean scale_changed)
+{
+	return scale_changed;
+}
+
+static inline gboolean
 ev_view_should_handle_size_allocate (gboolean has_document,
 				     gboolean loading,
 				     gboolean pending_resize)
