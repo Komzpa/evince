@@ -13,13 +13,16 @@
           <object class="GtkIconView" id="icon_view">
             <property name="model">list_store</property>
             <signal name="selection-changed" handler="ev_sidebar_icon_selection_changed" />
+            <style>
+              <class name="sidebar-thumbnails"/>
+            </style>
             <child>
               <object class="GtkCellRendererPixbuf">
                 <property name="xalign">0.5</property>
                 <property name="yalign">1.0</property>
               </object>
               <attributes>
-                <attribute name="texture">1</attribute>
+                <attribute name="pixbuf">1</attribute>
               </attributes>
             </child>
             <child>
@@ -44,7 +47,7 @@
   <object class="GtkListStore" id="list_store">
     <columns>
       <column type="gchararray" />
-      <column type="GdkTexture" />
+      <column type="GdkPixbuf" />
       <column type="gboolean" />
       <column type="EvJobThumbnailCairo" />
     </columns>

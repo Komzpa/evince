@@ -29,6 +29,8 @@
 
 #include "ev-jobs.h"
 #include "ev-job-scheduler.h"
+#include "ev-file-exporter-private.h"
+#include "ev-print-range-private.h"
 
 #if defined (G_OS_UNIX)
 #define PORTAL_ENABLED
@@ -47,6 +49,17 @@ enum {
 };
 
 static guint signals[LAST_SIGNAL] = { 0 };
+
+typedef enum {
+	EV_SCALE_NONE,
+	EV_SCALE_SHRINK_TO_PRINTABLE_AREA,
+	EV_SCALE_FIT_TO_PRINTABLE_AREA
+} EvPrintScale;
+
+#define EV_PRINT_SETTING_PAGE_SCALE   "evince-print-setting-page-scale"
+#define EV_PRINT_SETTING_AUTOROTATE   "evince-print-setting-page-autorotate"
+#define EV_PRINT_SETTING_PAGE_SIZE    "evince-print-setting-page-size"
+#define EV_PRINT_SETTING_DRAW_BORDERS "evince-print-setting-page-draw-borders"
 
 struct _EvPrintOperation {
 	GObject parent;
@@ -414,6 +427,9 @@ struct _EvPrintOperationExport {
 	gint uncollated, collated, total;
 
 	gint sheet, page_count;
+	gdouble manual_scale;
+	gboolean scale_to_paper;
+	gboolean autorotate;
 
 	gint range, n_ranges;
 	GtkPageRange *ranges;
@@ -637,61 +653,11 @@ find_range (EvPrintOperationExport *export)
 static gboolean
 clamp_ranges (EvPrintOperationExport *export)
 {
-	gint num_of_correct_ranges = 0;
-	gint n_pages_to_print = 0;
-	gint i;
-	gboolean null_flag = FALSE;
-
-	for (i = 0; i < export->n_ranges; i++) {
-		gint n_pages;
-
-		if ((export->ranges[i].start >= 0) &&
-		    (export->ranges[i].start < export->n_pages) &&
-		    (export->ranges[i].end >= 0) &&
-		    (export->ranges[i].end < export->n_pages)) {
-			export->ranges[num_of_correct_ranges] = export->ranges[i];
-			num_of_correct_ranges++;
-		} else if ((export->ranges[i].start >= 0) &&
-			   (export->ranges[i].start < export->n_pages) &&
-			   (export->ranges[i].end >= export->n_pages)) {
-			export->ranges[i].end = export->n_pages - 1;
-			export->ranges[num_of_correct_ranges] = export->ranges[i];
-			num_of_correct_ranges++;
-		} else if ((export->ranges[i].end >= 0) &&
-			   (export->ranges[i].end < export->n_pages) &&
-			   (export->ranges[i].start < 0)) {
-			export->ranges[i].start = 0;
-			export->ranges[num_of_correct_ranges] = export->ranges[i];
-			num_of_correct_ranges++;
-		}
-
-		n_pages = export->ranges[i].end - export->ranges[i].start + 1;
-		if (export->page_set == GTK_PAGE_SET_ALL) {
-			n_pages_to_print += n_pages;
-		} else if (n_pages % 2 == 0) {
-			n_pages_to_print += n_pages / 2;
-		} else if (export->page_set == GTK_PAGE_SET_EVEN) {
-			if (n_pages==1 && export->ranges[i].start % 2 == 0)
-				null_flag = TRUE;
-			else
-				n_pages_to_print += export->ranges[i].start % 2 == 0 ?
-				n_pages / 2 : (n_pages / 2) + 1;
-		} else if (export->page_set == GTK_PAGE_SET_ODD) {
-			if (n_pages==1 && export->ranges[i].start % 2 != 0)
-				null_flag = TRUE;
-			else
-				n_pages_to_print += export->ranges[i].start % 2 == 0 ?
-				(n_pages / 2) + 1 : n_pages / 2;
-		}
-	}
-
-	if (null_flag && !n_pages_to_print) {
-		return FALSE;
-	} else {
-		export->n_ranges = num_of_correct_ranges;
-		export->n_pages_to_print = n_pages_to_print;
-		return TRUE;
-	}
+	return ev_print_range_clamp (export->ranges,
+	                             &export->n_ranges,
+	                             export->n_pages,
+	                             export->page_set,
+	                             &export->n_pages_to_print);
 }
 
 static void
@@ -920,6 +886,9 @@ export_cancel (EvPrintOperationExport *export)
 		export->fd = -1;
 	}
 
+	if (ev_print_queue_peek (op->document) == op)
+		ev_file_exporter_clear_print_settings (EV_FILE_EXPORTER (op->document));
+
 	ev_print_operation_export_clear_temp_file (export);
 
 	g_signal_emit (op, signals[DONE], 0, GTK_PRINT_OPERATION_RESULT_CANCEL);
@@ -1035,6 +1004,10 @@ ev_print_operation_export_begin (EvPrintOperationExport *export)
 		return; /* cancelled */
 
 	ev_document_doc_mutex_lock ();
+	ev_file_exporter_set_print_settings (EV_FILE_EXPORTER (op->document),
+					     export->scale_to_paper,
+					     export->autorotate,
+					     export->manual_scale);
 	ev_file_exporter_begin (EV_FILE_EXPORTER (op->document), &export->fc);
 	ev_document_doc_mutex_unlock ();
 
@@ -1194,6 +1167,8 @@ ev_print_operation_export_prepare (EvPrintOperationExport *export,
         gdouble           scale;
         gdouble           width;
         gdouble           height;
+        EvPrintScale      page_scale;
+        gboolean          autorotate;
         gint              first_page;
         gint              last_page;
 
@@ -1201,11 +1176,12 @@ ev_print_operation_export_prepare (EvPrintOperationExport *export,
 
         width = gtk_page_setup_get_paper_width (export->page_setup, GTK_UNIT_POINTS);
         height = gtk_page_setup_get_paper_height (export->page_setup, GTK_UNIT_POINTS);
-        scale = gtk_print_settings_get_scale (export->print_settings) * 0.01;
-        if (scale != 1.0) {
-                width *= scale;
-                height *= scale;
-        }
+        page_scale = gtk_print_settings_get_int_with_default (export->print_settings,
+                                                              EV_PRINT_SETTING_PAGE_SCALE,
+                                                              EV_SCALE_SHRINK_TO_PRINTABLE_AREA);
+        autorotate = gtk_print_settings_has_key (export->print_settings, EV_PRINT_SETTING_AUTOROTATE) ?
+                gtk_print_settings_get_bool (export->print_settings, EV_PRINT_SETTING_AUTOROTATE) :
+                TRUE;
 
         export->pages_per_sheet = MAX (1, gtk_print_settings_get_number_up (export->print_settings));
 
@@ -1230,6 +1206,14 @@ ev_print_operation_export_prepare (EvPrintOperationExport *export,
         }
         find_range (export);
 
+        scale = gtk_print_settings_get_scale (export->print_settings) * 0.01;
+        export->manual_scale = scale;
+        if (scale != 1.0 &&
+            (page_scale != EV_SCALE_NONE || export->pages_per_sheet > 1)) {
+                width *= scale;
+                height *= scale;
+        }
+
         export->page = export->start - export->inc;
         export->collated = export->collated_copies - 1;
 
@@ -1243,6 +1227,8 @@ ev_print_operation_export_prepare (EvPrintOperationExport *export,
         export->fc.paper_height = height;
         export->fc.duplex = FALSE;
         export->fc.pages_per_sheet = export->pages_per_sheet;
+        export->scale_to_paper = page_scale != EV_SCALE_NONE || export->pages_per_sheet > 1;
+        export->autorotate = autorotate;
 
         if (ev_print_queue_is_empty (op->document))
                 ev_print_operation_export_begin (export);
@@ -2245,17 +2231,6 @@ typedef struct _EvPrintOperationPrintClass EvPrintOperationPrintClass;
 
 static GType ev_print_operation_print_get_type (void) G_GNUC_CONST;
 
-typedef enum {
-	EV_SCALE_NONE,
-	EV_SCALE_SHRINK_TO_PRINTABLE_AREA,
-	EV_SCALE_FIT_TO_PRINTABLE_AREA
-} EvPrintScale;
-
-#define EV_PRINT_SETTING_PAGE_SCALE   "evince-print-setting-page-scale"
-#define EV_PRINT_SETTING_AUTOROTATE   "evince-print-setting-page-autorotate"
-#define EV_PRINT_SETTING_PAGE_SIZE    "evince-print-setting-page-size"
-#define EV_PRINT_SETTING_DRAW_BORDERS "evince-print-setting-page-draw-borders"
-
 struct _EvPrintOperationPrint {
 	EvPrintOperation parent;
 
@@ -2664,7 +2639,9 @@ ev_print_operation_print_create_custom_widget (EvPrintOperationPrint *print,
 	autorotate = gtk_print_settings_has_key (settings, EV_PRINT_SETTING_AUTOROTATE) ?
 		gtk_print_settings_get_bool (settings, EV_PRINT_SETTING_AUTOROTATE) :
 		TRUE;
-	use_source_size = gtk_print_settings_get_bool (settings, EV_PRINT_SETTING_PAGE_SIZE);
+	use_source_size = gtk_print_settings_has_key (settings, EV_PRINT_SETTING_PAGE_SIZE) ?
+		gtk_print_settings_get_bool (settings, EV_PRINT_SETTING_PAGE_SIZE) :
+		TRUE;
 	draw_borders = gtk_print_settings_has_key (settings, EV_PRINT_SETTING_DRAW_BORDERS) ?
 		gtk_print_settings_get_bool (settings, EV_PRINT_SETTING_DRAW_BORDERS) :
 		FALSE;

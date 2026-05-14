@@ -361,6 +361,13 @@ ev_view_presentation_delete_job (EvViewPresentation *pview,
 	if (!job)
 		return;
 
+	if (pview->curr_job == job)
+		pview->curr_job = NULL;
+	if (pview->prev_job == job)
+		pview->prev_job = NULL;
+	if (pview->next_job == job)
+		pview->next_job = NULL;
+
 	g_signal_handlers_disconnect_by_func (job, job_finished_cb, pview);
 	ev_job_cancel (job);
 	g_object_unref (job);
@@ -433,7 +440,8 @@ ev_view_presentation_update_current_page (EvViewPresentation *pview,
 		else
 			ev_job_scheduler_update_job (pview->curr_job, EV_JOB_PRIORITY_URGENT);
 		pview->prev_job = ev_view_presentation_schedule_new_job (pview, page - 1, EV_JOB_PRIORITY_HIGH);
-		ev_job_scheduler_update_job (pview->next_job, EV_JOB_PRIORITY_LOW);
+		if (pview->next_job)
+			ev_job_scheduler_update_job (pview->next_job, EV_JOB_PRIORITY_LOW);
 
 		break;
 	case 1:

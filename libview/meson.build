@@ -28,6 +28,7 @@ sources = files(
   #'ev-page-accessible.c',
   'ev-page-cache.c',
   'ev-pixbuf-cache.c',
+  'ev-print-range.c',
   'ev-print-operation.c',
   'ev-view.c',
   #'ev-view-accessible.c',
@@ -101,6 +102,26 @@ libevview_dep = declare_dependency(
   link_with: libevview,
 )
 
+test_print_range = executable(
+  'test-print-range',
+  ['test-print-range.c', 'ev-print-range.c'],
+  include_directories: top_inc,
+  dependencies: gtk_dep,
+  c_args: cflags,
+)
+
+test('print-range', test_print_range)
+
+test_job_scheduler = executable(
+  'test-job-scheduler',
+  'test-job-scheduler.c',
+  include_directories: top_inc,
+  dependencies: libevview_dep,
+  c_args: cflags,
+)
+
+test('job-scheduler', test_job_scheduler)
+
 pkg.generate(
   libevview,
   filebase: 'evince-view-' + ev_api_version,
@@ -137,5 +158,53 @@ if enable_introspection
     export_packages: 'evince-view-' + ev_api_version,
     extra_args: '-DEVINCE_COMPILATION',
     install: true,
+  )
+endif
+
+test_name = 'test-ev-view'
+
+test_ev_view = executable(
+  test_name,
+  'test-ev-view.c',
+  include_directories: top_inc,
+  dependencies: libevview_dep,
+  c_args: '-DEVINCE_COMPILATION',
+)
+
+test(test_name, test_ev_view)
+
+if enable_pdf and cairo_pdf_dep.found()
+  test_name = 'test-thumbnail-render'
+
+  test_thumbnail_render = executable(
+    test_name,
+    'test-thumbnail-render.c',
+    include_directories: top_inc,
+    dependencies: [libevview_dep, cairo_pdf_dep],
+    c_args: '-DEVINCE_COMPILATION',
+  )
+
+  test(test_name, test_thumbnail_render,
+    depends: backend_modules + backend_descriptors,
+    env: {
+      'EV_BACKENDS_DIR': meson.project_build_root() / 'backend',
+    }
+  )
+
+  test_name = 'test-render-job'
+
+  test_render_job = executable(
+    test_name,
+    'test-render-job.c',
+    include_directories: top_inc,
+    dependencies: [libevview_dep, cairo_pdf_dep],
+    c_args: '-DEVINCE_COMPILATION',
+  )
+
+  test(test_name, test_render_job,
+    depends: backend_modules + backend_descriptors,
+    env: {
+      'EV_BACKENDS_DIR': meson.project_build_root() / 'backend',
+    }
   )
 endif

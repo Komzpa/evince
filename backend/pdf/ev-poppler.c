@@ -40,7 +40,10 @@
 #include <glib/gi18n-lib.h>
 
 #include "ev-poppler.h"
+#include "ev-poppler-links-private.h"
+#include "ev-poppler-private.h"
 #include "ev-file-exporter.h"
+#include "ev-file-exporter-private.h"
 #include "ev-document-find.h"
 #include "ev-document-misc.h"
 #include "ev-document-links.h"
@@ -77,6 +80,9 @@ typedef struct {
 	gint pages_y;
 	gdouble paper_width;
 	gdouble paper_height;
+	gdouble manual_scale;
+	gboolean scale_to_paper;
+	gboolean autorotate;
 
 #ifdef HAVE_CAIRO_PRINT
 	cairo_t *cr;
@@ -98,6 +104,8 @@ struct _PdfDocument
 	gchar *password;
 	gboolean forms_modified;
 	gboolean annots_modified;
+	guint added_annots;
+	guint added_annots_generation;
 
 	PopplerFontsIter *fonts_iter;
 	gboolean missing_fonts;
@@ -106,6 +114,31 @@ struct _PdfDocument
 
 	GHashTable *annots;
 };
+
+#define EV_POPPLER_ADDED_ANNOT_KEY "ev-poppler-added-annot"
+
+static gboolean
+pdf_document_annotations_are_modified (PdfDocument *pdf_document)
+{
+	return pdf_document->annots_modified || pdf_document->added_annots > 0;
+}
+
+static void
+pdf_document_update_modified (PdfDocument *pdf_document)
+{
+	ev_document_set_modified (EV_DOCUMENT (pdf_document),
+				  pdf_document->forms_modified ||
+				  pdf_document_annotations_are_modified (pdf_document));
+}
+
+static guint
+pdf_document_get_added_annots_generation (PdfDocument *pdf_document)
+{
+	if (pdf_document->added_annots_generation == 0)
+		pdf_document->added_annots_generation = 1;
+
+	return pdf_document->added_annots_generation;
+}
 
 static void pdf_document_security_iface_init             (EvDocumentSecurityInterface    *iface);
 static void pdf_document_document_links_iface_init       (EvDocumentLinksInterface       *iface);
@@ -237,7 +270,11 @@ pdf_document_save (EvDocument  *document,
 	if (retval) {
 		pdf_document->forms_modified = FALSE;
 		pdf_document->annots_modified = FALSE;
-		ev_document_set_modified (EV_DOCUMENT (document), FALSE);
+		pdf_document->added_annots = 0;
+		pdf_document->added_annots_generation++;
+		if (pdf_document->added_annots_generation == 0)
+			pdf_document->added_annots_generation = 1;
+		pdf_document_update_modified (pdf_document);
 	} else {
 		convert_error (poppler_error, error);
 	}
@@ -1289,6 +1326,7 @@ build_tree (PdfDocument      *pdf_document,
 
 		gtk_tree_store_append (GTK_TREE_STORE (model), &tree_iter, parent);
 		title_markup = g_markup_escape_text (ev_link_get_title (link), -1);
+		ev_poppler_outline_title_make_single_line (title_markup);
 
 		gtk_tree_store_set (GTK_TREE_STORE (model), &tree_iter,
 				    EV_DOCUMENT_LINKS_COLUMN_MARKUP, title_markup,
@@ -1589,6 +1627,10 @@ pdf_document_file_exporter_begin (EvFileExporter        *exporter,
 
 	ctx->paper_width = fc->paper_width;
 	ctx->paper_height = fc->paper_height;
+	ev_file_exporter_get_print_settings (exporter,
+					     &ctx->scale_to_paper,
+					     &ctx->autorotate,
+					     &ctx->manual_scale);
 
 	switch (fc->pages_per_sheet) {
 	        default:
@@ -1660,6 +1702,20 @@ pdf_document_file_exporter_begin_page (EvFileExporter *exporter)
 	ctx->pages_printed = 0;
 
 #ifdef HAVE_CAIRO_PRINT
+	if (!ctx->scale_to_paper) {
+		if (ctx->format == EV_FILE_FORMAT_PS) {
+			cairo_ps_surface_set_size (cairo_get_target (ctx->cr),
+						   ctx->paper_width,
+						   ctx->paper_height);
+		} else if (ctx->format == EV_FILE_FORMAT_PDF) {
+			cairo_pdf_surface_set_size (cairo_get_target (ctx->cr),
+						    ctx->paper_width,
+						    ctx->paper_height);
+		}
+
+		return;
+	}
+
 	if (ctx->paper_width > ctx->paper_height) {
 		if (ctx->format == EV_FILE_FORMAT_PS) {
 			cairo_ps_surface_set_size (cairo_get_target (ctx->cr),
@@ -1698,6 +1754,34 @@ pdf_document_file_exporter_do_page (EvFileExporter  *exporter,
 	x = (ctx->pages_printed % ctx->pages_per_sheet) % ctx->pages_x;
 	y = (ctx->pages_printed % ctx->pages_per_sheet) / ctx->pages_x;
 	poppler_page_get_size (poppler_page, &page_width, &page_height);
+
+	if (!ctx->scale_to_paper) {
+		gboolean page_is_landscape = page_width > page_height;
+		gboolean paper_is_landscape = ctx->paper_width > ctx->paper_height;
+
+		cairo_save (ctx->cr);
+
+		if (ctx->autorotate && page_is_landscape != paper_is_landscape) {
+			cairo_translate (ctx->cr,
+					 (ctx->paper_width - page_height * ctx->manual_scale) / 2.0 + page_height * ctx->manual_scale,
+					 (ctx->paper_height - page_width * ctx->manual_scale) / 2.0);
+			cairo_rotate (ctx->cr, G_PI_2);
+		} else if (ctx->autorotate) {
+			cairo_translate (ctx->cr,
+					 (ctx->paper_width - page_width * ctx->manual_scale) / 2.0,
+					 (ctx->paper_height - page_height * ctx->manual_scale) / 2.0);
+		}
+
+		if (ctx->manual_scale != 1.0)
+			cairo_scale (ctx->cr, ctx->manual_scale, ctx->manual_scale);
+
+		poppler_page_render_for_printing (poppler_page, ctx->cr);
+		cairo_restore (ctx->cr);
+
+		ctx->pages_printed++;
+
+		return;
+	}
 
 	if (page_width > page_height && page_width > ctx->paper_width) {
 		rotate = TRUE;
@@ -2978,7 +3062,7 @@ pdf_document_annotations_get_annotations (EvDocumentAnnotations *document_annota
 static gboolean
 pdf_document_annotations_document_is_modified (EvDocumentAnnotations *document_annotations)
 {
-	return PDF_DOCUMENT (document_annotations)->annots_modified;
+	return pdf_document_annotations_are_modified (PDF_DOCUMENT (document_annotations));
 }
 
 static void
@@ -3009,8 +3093,15 @@ pdf_document_annotations_remove_annotation (EvDocumentAnnotations *document_anno
 			g_hash_table_remove (pdf_document->annots, GINT_TO_POINTER (page->index));
         }
 
-        pdf_document->annots_modified = TRUE;
-	ev_document_set_modified (EV_DOCUMENT (document_annotations), TRUE);
+	if (GPOINTER_TO_UINT (g_object_get_data (G_OBJECT (annot), EV_POPPLER_ADDED_ANNOT_KEY)) ==
+	    pdf_document_get_added_annots_generation (pdf_document)) {
+		g_object_set_data (G_OBJECT (annot), EV_POPPLER_ADDED_ANNOT_KEY, NULL);
+		if (pdf_document->added_annots > 0)
+			pdf_document->added_annots--;
+	} else {
+		pdf_document->annots_modified = TRUE;
+	}
+	pdf_document_update_modified (pdf_document);
 }
 
 /* FIXME: this could be moved to poppler */
@@ -3128,6 +3219,9 @@ pdf_document_annotations_add_annotation (EvDocumentAnnotations *document_annotat
 			icon = ev_annotation_text_get_icon (text);
 			poppler_annot_text_set_icon (POPPLER_ANNOT_TEXT (poppler_annot),
 						     get_poppler_annot_text_icon (icon));
+			poppler_annot_set_flags (poppler_annot,
+						 ev_poppler_annot_text_icon_display_flags (
+							 poppler_annot_get_flags (poppler_annot)));
 			}
 			break;
 		case EV_ANNOTATION_TYPE_TEXT_MARKUP: {
@@ -3201,6 +3295,9 @@ pdf_document_annotations_add_annotation (EvDocumentAnnotations *document_annotat
 				"poppler-annot",
 				poppler_annot,
 				(GDestroyNotify) g_object_unref);
+	g_object_set_data (G_OBJECT (annot),
+			   EV_POPPLER_ADDED_ANNOT_KEY,
+			   GUINT_TO_POINTER (pdf_document_get_added_annots_generation (pdf_document)));
 
 	if (pdf_document->annots) {
 		mapping_list = (EvMappingList *)g_hash_table_lookup (pdf_document->annots,
@@ -3226,8 +3323,8 @@ pdf_document_annotations_add_annotation (EvDocumentAnnotations *document_annotat
 				     ev_mapping_list_ref (mapping_list));
 	}
 
-	pdf_document->annots_modified = TRUE;
-	ev_document_set_modified (EV_DOCUMENT (document_annotations), TRUE);
+	pdf_document->added_annots++;
+	pdf_document_update_modified (pdf_document);
 }
 
 /* FIXME: We could probably add this to poppler */
@@ -3445,8 +3542,10 @@ pdf_document_annotations_save_annotation (EvDocumentAnnotations *document_annota
 		}
 	}
 
-	PDF_DOCUMENT (document_annotations)->annots_modified = TRUE;
-	ev_document_set_modified (EV_DOCUMENT (document_annotations), TRUE);
+	if (GPOINTER_TO_UINT (g_object_get_data (G_OBJECT (annot), EV_POPPLER_ADDED_ANNOT_KEY)) !=
+	    pdf_document_get_added_annots_generation (PDF_DOCUMENT (document_annotations)))
+		PDF_DOCUMENT (document_annotations)->annots_modified = TRUE;
+	pdf_document_update_modified (PDF_DOCUMENT (document_annotations));
 }
 
 /* Creates a vector from points @p1 and @p2 and stores it on @vector */

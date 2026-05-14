@@ -61,6 +61,11 @@ struct _EvSidebarAnnotationsPrivate {
 	EvJob       *job;
 };
 
+typedef struct {
+	EvMappingList *mapping_list;
+	EvMapping     *mapping;
+} EvSidebarAnnotationRowData;
+
 static void ev_sidebar_annotations_page_iface_init (EvSidebarPageInterface *iface);
 static void ev_sidebar_annotations_load            (EvSidebarAnnotations   *sidebar_annots);
 static void job_finished_callback (EvJobAnnots          *job,
@@ -80,6 +85,26 @@ G_DEFINE_TYPE_EXTENDED (EvSidebarAnnotations,
 #define GET_PRIVATE(t) (ev_sidebar_annotations_get_instance_private (t))
 
 #define ANNOT_ICON_SIZE 16
+
+static EvSidebarAnnotationRowData *
+ev_sidebar_annotation_row_data_new (EvMappingList *mapping_list,
+				    EvMapping     *mapping)
+{
+	EvSidebarAnnotationRowData *data;
+
+	data = g_new0 (EvSidebarAnnotationRowData, 1);
+	data->mapping_list = ev_mapping_list_ref (mapping_list);
+	data->mapping = mapping;
+
+	return data;
+}
+
+static void
+ev_sidebar_annotation_row_data_free (EvSidebarAnnotationRowData *data)
+{
+	ev_mapping_list_unref (data->mapping_list);
+	g_free (data);
+}
 
 static void
 ev_sidebar_annotations_dispose (GObject *object)
@@ -204,7 +229,7 @@ sidebar_annots_button_press_cb (GtkGestureClick *self,
 				gint		 n_press,
 				gdouble		 x,
 				gdouble		 y,
-				EvMapping	*mapping)
+				EvSidebarAnnotationRowData *data)
 {
 	GtkEventController *controller = GTK_EVENT_CONTROLLER (self);
 	GdkEvent *event = gtk_event_controller_get_current_event (controller);
@@ -214,7 +239,9 @@ sidebar_annots_button_press_cb (GtkGestureClick *self,
 	EvSidebarAnnotationsPrivate *priv = GET_PRIVATE (EV_SIDEBAR_ANNOTATIONS (sidebar_annots));
 	GtkWindow *window;
 	double sidebar_annots_x, sidebar_annots_y;
+	EvMapping *mapping;
 
+	mapping = data->mapping;
 	if (!mapping)
 		return;
 
@@ -267,11 +294,12 @@ job_finished_callback (EvJobAnnots          *job,
 		GtkWidget     *expander;
 
 		mapping_list = (EvMappingList *)l->data;
-		page_label = g_strdup_printf (_("Page %d"),
-					      ev_mapping_list_get_page (mapping_list) + 1);
+		page_label = ev_document_get_page_label (EV_JOB (job)->document,
+							 ev_mapping_list_get_page (mapping_list));
 
 		expander = adw_expander_row_new ();
-		adw_preferences_row_set_title (ADW_PREFERENCES_ROW (expander), page_label);
+		adw_preferences_row_set_title (ADW_PREFERENCES_ROW (expander),
+					       page_label ? page_label : "");
 		adw_expander_row_set_expanded (ADW_EXPANDER_ROW (expander), TRUE);
 		gtk_list_box_append (GTK_LIST_BOX (priv->list_box), expander);
 
@@ -337,8 +365,11 @@ job_finished_callback (EvJobAnnots          *job,
 			gtk_gesture_single_set_button (GTK_GESTURE_SINGLE (controller), 0);
 			gtk_widget_add_controller (row, controller);
 
-			g_signal_connect (G_OBJECT (controller), "pressed",
-					  (GCallback)sidebar_annots_button_press_cb, ll->data);
+			g_signal_connect_data (G_OBJECT (controller), "pressed",
+					       (GCallback)sidebar_annots_button_press_cb,
+					       ev_sidebar_annotation_row_data_new (mapping_list, ll->data),
+					       (GClosureNotify)ev_sidebar_annotation_row_data_free,
+					       0);
 
 			g_free (markup);
 			g_free (tooltip);

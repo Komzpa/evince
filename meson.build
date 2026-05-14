@@ -327,8 +327,23 @@ mime_types_list = {
   ],
 }
 
+thumbnailer_safe_mime_types = {
+  # The thumbnailer is launched automatically by file managers. Keep compressed
+  # document containers out of its advertised MIME set so a tiny .pdf.bz2/.dvi.gz
+  # cannot force unbounded temporary-file expansion during folder browsing.
+  'dvi': [
+    'application/x-dvi',
+    'application/x-ext-dvi',
+  ],
+  'pdf': [
+    'application/pdf',
+    'application/x-ext-pdf',
+  ],
+}
+
 backends = {}
 evince_mime_types = []
+thumbnailer_mime_types = []
 
 # *** Spectre ***
 if not get_option('ps').disabled() or not get_option('dvi').disabled()
@@ -347,6 +362,7 @@ enable_comics = libarchive_dep.found()
 if enable_comics
   backends += {'comics': mime_types_list.get('comics')}
   evince_mime_types += mime_types_list.get('comics')
+  thumbnailer_mime_types += mime_types_list.get('comics')
 elif get_option('comics').auto()
   warning('** Comics support is disabled since libarchive (version ' + libarchive_req_version + ') is needed')
 endif
@@ -358,6 +374,7 @@ enable_djvu = ddjvuapi_dep.found()
 if enable_djvu
   backends += {'djvu': mime_types_list.get('djvu')}
   evince_mime_types += mime_types_list.get('djvu')
+  thumbnailer_mime_types += mime_types_list.get('djvu')
 elif get_option('djvu').auto()
   warning('Djvu support is disabled since a recent version of the djvulibre library was not found. You need at least djvulibre ' + ddjvuapi_req_version + ' which can be found on http://djvulibre.djvuzone.org')
 endif
@@ -386,6 +403,7 @@ if enable_dvi
 
   backends += {'dvi': mime_types_list.get('dvi')}
   evince_mime_types += mime_types_list.get('dvi')
+  thumbnailer_mime_types += thumbnailer_safe_mime_types.get('dvi')
 elif get_option('dvi').auto()
   warning('Dvi support is disabled since kpathsea library was not found. Check your installation.')
 endif
@@ -409,6 +427,7 @@ if enable_pdf
 
   backends += {'pdf': mime_types_list.get('pdf')}
   evince_mime_types += mime_types_list.get('pdf')
+  thumbnailer_mime_types += thumbnailer_safe_mime_types.get('pdf')
 elif get_option('pdf').auto()
   warning('PDF support is disabled since poppler-glib version ' + poppler_req_version + ' not found')
 endif
@@ -432,6 +451,7 @@ enable_tiff = libtiff_dep.found()
 if enable_tiff
   backends += {'tiff': mime_types_list.get('tiff')}
   evince_mime_types += mime_types_list.get('tiff')
+  thumbnailer_mime_types += mime_types_list.get('tiff')
 elif get_option('tiff').auto()
   warning('Tiff support is disabled since tiff library version 4.0 or newer not found')
 endif
@@ -443,6 +463,7 @@ enable_xps = libgxps_dep.found()
 if enable_xps
   backends += {'xps': mime_types_list.get('xps')}
   evince_mime_types += mime_types_list.get('xps')
+  thumbnailer_mime_types += mime_types_list.get('xps')
 elif get_option('xps').auto()
   warning('** XPS support is disabled since libgxps (version ' + libgxps_req_version + ') is needed')
 endif
@@ -457,6 +478,7 @@ endif
 
 mime_types_conf = configuration_data()
 mime_types_conf.set('EVINCE_MIME_TYPES', ';'.join(evince_mime_types))
+mime_types_conf.set('THUMBNAILER_MIME_TYPES', ';'.join(thumbnailer_mime_types))
 mime_types_conf.set('app_id', application_id)
 
 subdir('cut-n-paste')

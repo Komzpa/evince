@@ -140,7 +140,13 @@ ev_xmp_get_author (XmpPtr xmp)
 static char *
 ev_xmp_get_keywords (XmpPtr xmp)
 {
-	return ev_xmp_get_lists_from_dc_tags (xmp, "subject");
+	g_autofree char *keywords = NULL;
+
+	keywords = ev_xmp_get_lists_from_dc_tags (xmp, "subject");
+	if (keywords != NULL)
+		return g_steal_pointer (&keywords);
+
+	return ev_xmp_get_name (xmp, NS_PDF, "Keywords");
 }
 
 static char *

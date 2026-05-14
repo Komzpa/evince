@@ -34,6 +34,8 @@
 #include "ev-selection.h"
 #include "ev-view-cursor.h"
 
+#include <math.h>
+
 #define DRAG_HISTORY 10
 
 struct GdkPoint {
@@ -59,7 +61,9 @@ typedef struct {
 /* Autoscrolling */
 typedef struct {
 	gboolean autoscrolling;
+	guint last_x;
 	guint last_y;
+	guint start_x;
 	guint start_y;
 	guint timeout_id;
 } AutoScrollInfo;
@@ -255,6 +259,14 @@ typedef struct _EvViewPrivate {
 	/* Current zoom center */
 	gdouble zoom_center_x;
 	gdouble zoom_center_y;
+	gboolean zoom_anchor_valid;
+	gboolean zoom_anchor_pending_x;
+	gboolean zoom_anchor_pending_y;
+	gint zoom_anchor_page;
+	EvPoint zoom_anchor_doc_point;
+	gdouble zoom_anchor_widget_x;
+	gdouble zoom_anchor_widget_y;
+	guint zoom_anchor_clear_timeout_id;
 
 	/* Link preview */
 	EvLinkPreview link_preview;
@@ -327,6 +339,143 @@ gint _ev_view_get_caret_cursor_offset_at_doc_point (EvView *view,
 						    gint    page,
 						    gdouble doc_x,
 						    gdouble doc_y);
+
+#define EV_VIEW_MIN_FREE_ZOOM 4.0
+
+static inline gdouble
+ev_view_min_free_scale (gdouble dpi)
+{
+	return EV_VIEW_MIN_FREE_ZOOM * dpi;
+}
+
+static inline gdouble
+ev_view_max_scale_for_page (gsize   pixbuf_cache_size,
+			    gdouble width,
+			    gdouble height,
+			    gdouble dpi)
+{
+	gdouble cache_scale;
+
+	if (dpi <= 0)
+		dpi = 1.0;
+
+	if (width <= 0 || height <= 0)
+		return ev_view_min_free_scale (dpi);
+
+	cache_scale = sqrt (pixbuf_cache_size / (width * dpi * 4 * height * dpi)) * dpi;
+
+	return MAX (cache_scale, ev_view_min_free_scale (dpi));
+}
+
+static inline gint
+ev_view_zoom_anchor_scroll_position (gdouble anchor_view_pos,
+				     gdouble anchor_widget_pos)
+{
+	return anchor_view_pos - anchor_widget_pos;
+}
+
+static inline void
+ev_view_zoom_anchor_scroll_bounds (gdouble desired_scroll_value,
+				   gdouble base_lower,
+				   gdouble base_upper,
+				   gdouble page_size,
+				   gdouble *lower,
+				   gdouble *upper)
+{
+	*lower = MIN (base_lower, desired_scroll_value);
+	*upper = MAX (base_upper, desired_scroll_value + page_size);
+}
+
+static inline gint
+ev_view_zoom_anchor_scroll_value (gdouble desired_scroll_value,
+				  gdouble lower,
+				  gdouble upper,
+				  gdouble page_size)
+{
+	return CLAMP ((gint) round (desired_scroll_value),
+		      (gint) lower,
+		      (gint) MAX (lower, upper - page_size));
+}
+
+static inline gboolean
+ev_view_zoom_anchor_matches_widget_position (gboolean anchor_valid,
+					     gdouble  anchor_widget_x,
+					     gdouble  anchor_widget_y,
+					     gdouble  widget_x,
+					     gdouble  widget_y)
+{
+	return anchor_valid &&
+	       fabs (anchor_widget_x - widget_x) <= 0.5 &&
+	       fabs (anchor_widget_y - widget_y) <= 0.5;
+}
+
+static inline void
+ev_view_zoom_center_for_scroll (gboolean event_has_position,
+				gdouble  event_x,
+				gdouble  event_y,
+				gboolean pointer_has_position,
+				gint     pointer_x,
+				gint     pointer_y,
+				gint     widget_width,
+				gint     widget_height,
+				gdouble *x,
+				gdouble *y)
+{
+	if (event_has_position) {
+		*x = event_x;
+		*y = event_y;
+	} else if (pointer_has_position) {
+		*x = pointer_x;
+		*y = pointer_y;
+	} else {
+		*x = widget_width / 2.0;
+		*y = widget_height / 2.0;
+	}
+}
+
+static inline gboolean
+ev_view_should_queue_draw_after_range_update (gboolean current_page_has_texture,
+					      gboolean pending_resize)
+{
+	return current_page_has_texture || pending_resize;
+}
+
+static inline gboolean
+ev_view_should_queue_draw_after_scale_change (gboolean scale_changed)
+{
+	return scale_changed;
+}
+
+static inline gboolean
+ev_view_should_update_range_after_scale_change (gboolean has_document,
+						gboolean has_pixbuf_cache,
+						gboolean has_page_cache,
+						gint     start_page,
+						gint     end_page)
+{
+	return has_document &&
+	       has_pixbuf_cache &&
+	       has_page_cache &&
+	       start_page >= 0 &&
+	       end_page >= start_page;
+}
+
+static inline gboolean
+ev_view_should_handle_size_allocate (gboolean has_document,
+				     gboolean loading,
+				     gboolean pending_resize)
+{
+	return has_document && (!loading || pending_resize);
+}
+
+static inline gboolean
+ev_pixbuf_cache_should_preserve_completed_job (gboolean cache_page_ready,
+					       gboolean job_failed,
+					       gboolean render_page_ready)
+{
+	return !cache_page_ready && !job_failed && render_page_ready;
+}
+
 void _ev_view_clear_selection (EvView   *view);
 void _ev_view_set_selection   (EvView   *view,
 			       GdkPoint *start_point,

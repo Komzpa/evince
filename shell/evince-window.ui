@@ -24,6 +24,12 @@
     <signal name="notify::default-width" handler="window_size_changed_cb" />
     <signal name="notify::default-height" handler="window_size_changed_cb" />
     <child>
+      <object class="GtkEventControllerKey">
+        <property name="propagation-phase">capture</property>
+        <signal name="key-pressed" handler="zoom_action_key_pressed_cb" />
+      </object>
+    </child>
+    <child>
       <object class="GtkBox" id="main_box">
         <property name="orientation">vertical</property>
         <child>

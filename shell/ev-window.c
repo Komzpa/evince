@@ -79,6 +79,8 @@
 #include "ev-view-presentation.h"
 #include "ev-view-type-builtins.h"
 #include "ev-window.h"
+#include "ev-window-metadata-private.h"
+#include "ev-window-private.h"
 #include "ev-window-title.h"
 #include "ev-print-operation.h"
 #include "ev-progress-message-area.h"
@@ -182,6 +184,8 @@ typedef struct {
 	EvWindowTitle *title;
 	EvMetadata *metadata;
 	EvBookmarks *bookmarks;
+	gboolean document_continuous_overrides_setting;
+	gboolean applying_document_continuous_default;
 
 	/* Has the document been modified? */
 	gboolean is_modified;
@@ -210,6 +214,7 @@ typedef struct {
 #endif
 
         guint presentation_mode_inhibit_id;
+	guint fullscreen_toolbar_hide_timeout_id;
 
 	/* Caret navigation */
 	GtkWidget *ask_caret_navigation_check;
@@ -223,7 +228,6 @@ typedef struct {
 #define GET_PRIVATE(o) ev_window_get_instance_private (o)
 
 #define EV_WINDOW_IS_PRESENTATION(priv) (priv->presentation_view != NULL)
-
 #define GS_LOCKDOWN_SCHEMA_NAME  "org.gnome.desktop.lockdown"
 #define GS_LOCKDOWN_SAVE         "disable-save-to-disk"
 #define GS_LOCKDOWN_PRINT        "disable-printing"
@@ -250,7 +254,6 @@ typedef struct {
 
 static const gchar *document_print_settings[] = {
 	GTK_PRINT_SETTINGS_COLLATE,
-	GTK_PRINT_SETTINGS_REVERSE,
 	GTK_PRINT_SETTINGS_NUMBER_UP,
 	GTK_PRINT_SETTINGS_SCALE,
 	GTK_PRINT_SETTINGS_PRINT_PAGES,
@@ -955,6 +958,43 @@ scrolled_window_focus_in_cb (GtkEventControllerFocus    *self,
 	return GDK_EVENT_STOP;
 }
 
+static gboolean
+zoom_action_key_pressed_cb (GtkEventControllerKey *self,
+			    guint                  keyval,
+			    guint                  keycode,
+			    GdkModifierType        state,
+			    EvWindow              *window)
+{
+	EvWindowPrivate *priv = GET_PRIVATE (window);
+	GtkWidget       *focus;
+	GtkScrollType    scroll;
+
+	if ((state & gtk_accelerator_get_default_mod_mask ()) != 0)
+		return GDK_EVENT_PROPAGATE;
+
+	focus = gtk_root_get_focus (GTK_ROOT (window));
+	if (!focus || !gtk_widget_get_ancestor (focus, EV_TYPE_ZOOM_ACTION))
+		return GDK_EVENT_PROPAGATE;
+
+	switch (keyval) {
+	case GDK_KEY_Up:
+	case GDK_KEY_KP_Up:
+		scroll = GTK_SCROLL_STEP_BACKWARD;
+		break;
+	case GDK_KEY_Down:
+	case GDK_KEY_KP_Down:
+		scroll = GTK_SCROLL_STEP_FORWARD;
+		break;
+	default:
+		return GDK_EVENT_PROPAGATE;
+	}
+
+	ev_window_focus_view (window);
+	g_signal_emit_by_name (priv->view, "scroll", scroll, GTK_ORIENTATION_VERTICAL);
+
+	return GDK_EVENT_STOP;
+}
+
 static void
 view_selection_changed_cb (EvView   *view,
 			   EvWindow *window)
@@ -1101,6 +1141,64 @@ update_document_mode (EvWindow *window, EvDocumentMode mode)
 	}
 }
 
+static gboolean
+ev_window_document_is_slide_deck (EvDocument *document)
+{
+	static const double slide_ratios[] = {
+		4.0 / 3.0,
+		16.0 / 9.0,
+		16.0 / 10.0
+	};
+	double width;
+	double height;
+	double ratio;
+	guint i;
+
+	if (!document || ev_document_get_n_pages (document) <= 0)
+		return FALSE;
+
+	ev_document_get_page_size (document, 0, &width, &height);
+	if (width <= 0 || height <= 0 || width <= height)
+		return FALSE;
+
+	ratio = width / height;
+	for (i = 0; i < G_N_ELEMENTS (slide_ratios); i++) {
+		if (fabs (ratio - slide_ratios[i]) <= 0.03)
+			return TRUE;
+	}
+
+	return FALSE;
+}
+
+static void
+ev_window_apply_document_model_defaults (EvWindow *window,
+					 EvDocument *document)
+{
+	EvWindowPrivate *priv = GET_PRIVATE (window);
+	gboolean settings_continuous;
+	gboolean continuous;
+	gboolean slide_deck;
+
+	priv->document_continuous_overrides_setting = FALSE;
+
+	if (!document)
+		return;
+
+	/* Existing metadata might be an old default or a user choice; preserve it. */
+	if (priv->metadata && ev_metadata_has_key (priv->metadata, "continuous"))
+		return;
+
+	settings_continuous = g_settings_get_boolean (priv->default_settings, "continuous");
+	slide_deck = ev_window_document_is_slide_deck (document);
+
+	continuous = slide_deck ? FALSE : settings_continuous;
+	priv->document_continuous_overrides_setting = continuous != settings_continuous;
+
+	priv->applying_document_continuous_default = TRUE;
+	ev_document_model_set_continuous (priv->model, continuous);
+	priv->applying_document_continuous_default = FALSE;
+}
+
 static void
 ev_window_init_metadata_with_default_values (EvWindow *window)
 {
@@ -1125,10 +1223,6 @@ ev_window_init_metadata_with_default_values (EvWindow *window)
 	}
 
 	/* Document model */
-	if (!ev_metadata_has_key (metadata, "continuous")) {
-		ev_metadata_set_boolean (metadata, "continuous",
-					 g_settings_get_boolean (settings, "continuous"));
-	}
 	if (!ev_metadata_has_key (metadata, "dual-page")) {
 		ev_metadata_set_boolean (metadata, "dual-page",
 					 g_settings_get_boolean (settings, "dual-page"));
@@ -1196,7 +1290,6 @@ setup_model_from_metadata (EvWindow *window)
 	gboolean dual_page = FALSE;
 	gboolean dual_page_odd_left = FALSE;
 	gboolean rtl = FALSE;
-	gboolean fullscreen = FALSE;
 	EvWindowPrivate *priv = GET_PRIVATE (window);
 
 	if (!priv->metadata)
@@ -1270,11 +1363,6 @@ setup_model_from_metadata (EvWindow *window)
 		ev_document_model_set_rtl (priv->model, rtl);
 	}
 
-	/* Fullscreen */
-	if (ev_metadata_get_boolean (priv->metadata, "fullscreen", &fullscreen)) {
-		if (fullscreen)
-			ev_window_run_fullscreen (window);
-	}
 }
 
 static void
@@ -1397,16 +1485,28 @@ setup_size_from_metadata (EvWindow *window)
 static void
 setup_view_from_metadata (EvWindow *window)
 {
-	gboolean presentation;
+	gboolean fullscreen = FALSE;
+	gboolean presentation = FALSE;
+	gboolean has_fullscreen;
+	gboolean has_presentation;
 	EvWindowPrivate *priv = GET_PRIVATE (window);
 
 	if (!priv->metadata)
 		return;
 
-	/* Presentation */
-	if (ev_metadata_get_boolean (priv->metadata, "presentation", &presentation)) {
-		if (presentation)
-			ev_window_run_presentation (window);
+	has_fullscreen = ev_metadata_get_boolean (priv->metadata, "fullscreen", &fullscreen);
+	has_presentation = ev_metadata_get_boolean (priv->metadata, "presentation", &presentation);
+
+	switch (ev_window_metadata_document_mode (has_fullscreen, fullscreen,
+						 has_presentation, presentation)) {
+	case EV_WINDOW_METADATA_DOCUMENT_MODE_PRESENTATION:
+		ev_window_run_presentation (window);
+		break;
+	case EV_WINDOW_METADATA_DOCUMENT_MODE_FULLSCREEN:
+		ev_window_run_fullscreen (window);
+		break;
+	case EV_WINDOW_METADATA_DOCUMENT_MODE_NONE:
+		break;
 	}
 
 	/* Caret navigation mode */
@@ -1608,6 +1708,18 @@ ev_window_set_document_metadata (EvWindow *window)
 }
 
 static void
+ev_window_clear_document (EvWindow *ev_window)
+{
+	EvWindowPrivate *priv = GET_PRIVATE (ev_window);
+
+	if (!priv->document)
+		return;
+
+	g_clear_signal_handler (&priv->modified_handler_id, priv->document);
+	g_clear_object (&priv->document);
+}
+
+static void
 ev_window_set_document (EvWindow *ev_window, EvDocument *document)
 {
 	EvWindowPrivate *priv = GET_PRIVATE (ev_window);
@@ -1615,8 +1727,7 @@ ev_window_set_document (EvWindow *ev_window, EvDocument *document)
 	if (priv->document == document)
 		return;
 
-	if (priv->document)
-		g_object_unref (priv->document);
+	ev_window_clear_document (ev_window);
 	priv->document = g_object_ref (document);
 
 	ev_window_set_message_area (ev_window, NULL);
@@ -1652,7 +1763,7 @@ ev_window_set_document (EvWindow *ev_window, EvDocument *document)
 	}
 
 	priv->is_modified = FALSE;
-	priv->modified_handler_id = g_signal_connect (document, "notify::modified", G_CALLBACK (ev_window_document_modified_cb), ev_window);
+	priv->modified_handler_id = g_signal_connect_object (document, "notify::modified", G_CALLBACK (ev_window_document_modified_cb), ev_window, 0);
 
 	g_clear_handle_id (&priv->setup_document_idle, g_source_remove);
 
@@ -1737,6 +1848,43 @@ ev_window_clear_local_uri (EvWindow *ev_window)
 	}
 }
 
+static gboolean
+ev_window_path_has_dir_prefix (const char *path,
+			       const char *dir)
+{
+	gsize len;
+
+	if (!path || !dir || *dir == '\0')
+		return FALSE;
+
+	len = strlen (dir);
+
+	return g_str_has_prefix (path, dir) &&
+		(path[len] == '\0' || G_IS_DIR_SEPARATOR (path[len]));
+}
+
+static gboolean
+ev_window_path_is_temporary_or_gvfs_mount (const char *path)
+{
+	const char *runtime_dir;
+	g_autofree char *gvfs_dir = NULL;
+
+	if (!path)
+		return FALSE;
+
+	if (ev_window_path_has_dir_prefix (path, g_get_tmp_dir ()) ||
+	    ev_window_path_has_dir_prefix (path, "/var/tmp"))
+		return TRUE;
+
+	runtime_dir = g_get_user_runtime_dir ();
+	if (!runtime_dir)
+		return FALSE;
+
+	gvfs_dir = g_build_filename (runtime_dir, "gvfs", NULL);
+
+	return ev_window_path_has_dir_prefix (path, gvfs_dir);
+}
+
 static void
 ev_window_handle_link (EvWindow *ev_window,
 		       EvLinkDest *dest)
@@ -1781,6 +1929,7 @@ ev_window_load_job_cb (EvJob *job,
 	/* Success! */
 	if (!ev_job_is_failed (job)) {
 		ev_document_model_set_document (priv->model, document);
+		ev_window_apply_document_model_defaults (ev_window, document);
 
 #ifdef ENABLE_DBUS
 		ev_window_emit_doc_loaded (ev_window);
@@ -2327,7 +2476,7 @@ ev_window_open_uri (EvWindow       *ev_window,
 	g_clear_pointer (&priv->uri, g_free);
 	path = g_file_get_path (source_file);
 	/* Try to use FUSE-backed files if possible to avoid downloading */
-	if (path)
+	if (path && !ev_window_path_is_temporary_or_gvfs_mount (path))
 		priv->uri = g_filename_to_uri (path, NULL, NULL);
 	else
 		priv->uri = g_strdup (uri);
@@ -2396,6 +2545,7 @@ ev_window_open_document (EvWindow       *ev_window,
 	setup_model_from_metadata (ev_window);
 
 	ev_document_model_set_document (priv->model, document);
+	ev_window_apply_document_model_defaults (ev_window, document);
 
 	setup_document_from_metadata (ev_window);
 	setup_view_from_metadata (ev_window);
@@ -3037,9 +3187,9 @@ ev_window_save_as (EvWindow *ev_window)
 {
 	EvWindowPrivate *priv = GET_PRIVATE (ev_window);
 	GtkFileChooserNative *fc;
-	gchar *base_name, *dir_name, *var_tmp_dir, *tmp_dir;
+	gchar *base_name, *dir_name;
 	GFile *file, *parent, *dest_file;
-	const gchar *default_dir, *dest_dir, *documents_dir;
+	const gchar *default_dir, *documents_dir;
 
 	fc = gtk_file_chooser_native_new (
 		_("Save As…"),
@@ -3052,8 +3202,7 @@ ev_window_save_as (EvWindow *ev_window)
 	file = g_file_new_for_uri (priv->uri);
 	base_name = priv->edit_name;
 	parent = g_file_get_parent (file);
-	dir_name = g_file_get_path (parent);
-	g_object_unref (parent);
+	dir_name = parent ? g_file_get_path (parent) : NULL;
 
 	gtk_file_chooser_set_current_name (GTK_FILE_CHOOSER (fc), base_name);
 
@@ -3061,21 +3210,17 @@ ev_window_save_as (EvWindow *ev_window)
 	default_dir = g_file_test (documents_dir, G_FILE_TEST_EXISTS | G_FILE_TEST_IS_DIR) ?
 	              documents_dir : g_get_home_dir ();
 
-	tmp_dir = g_build_filename ("tmp", NULL);
-	var_tmp_dir = g_build_filename ("var", "tmp", NULL);
-	dest_dir = dir_name && !g_str_has_prefix (dir_name, g_get_tmp_dir ()) &&
-			    !g_str_has_prefix (dir_name, tmp_dir) &&
-	                    !g_str_has_prefix (dir_name, var_tmp_dir) ?
-	                    dir_name : default_dir;
+	if (!parent || (dir_name && ev_window_path_is_temporary_or_gvfs_mount (dir_name)))
+		dest_file = g_file_new_for_path (default_dir);
+	else
+		dest_file = g_object_ref (parent);
 
-	dest_file = g_file_new_for_uri (dest_dir);
 	gtk_file_chooser_set_current_folder (GTK_FILE_CHOOSER (fc),
 					     dest_file, NULL);
 
 	g_object_unref (file);
+	g_clear_object (&parent);
 	g_object_unref (dest_file);
-	g_free (tmp_dir);
-	g_free (var_tmp_dir);
 	g_free (dir_name);
 
 	g_signal_connect (fc, "response",
@@ -3147,19 +3292,26 @@ ev_window_cmd_open_containing_folder (GSimpleAction *action,
 	GdkAppLaunchContext *context;
 	GdkDisplay *display;
 	GFile *file;
+	GFile *folder;
 	GList list;
 	GError *error = NULL;
 
-	app =  g_app_info_get_default_for_type ("inode/directory", FALSE);
 	file = g_file_new_for_uri (priv->uri);
 	if (!g_file_is_native (file)) {
 		g_object_unref (file);
 		file = g_file_new_for_uri (ev_document_get_uri (priv->document));
 	}
+
+	folder = g_file_get_parent (file);
+	if (folder == NULL)
+		folder = g_object_ref (file);
+
+	app = g_app_info_get_default_for_type ("inode/directory", FALSE);
 	if (app == NULL) {
 		dzl_file_manager_show (file, &error);
-		if (error) {
+		if (error != NULL) {
 			gchar *uri;
+
 			uri = g_file_get_uri (file);
 			g_warning ("Could not show containing folder for \"%s\": %s",
 				   uri, error->message);
@@ -3167,13 +3319,13 @@ ev_window_cmd_open_containing_folder (GSimpleAction *action,
 			g_error_free (error);
 			g_free (uri);
 		}
+		g_object_unref (folder);
 		g_object_unref (file);
 		return;
 	}
 
-
 	list.next = list.prev = NULL;
-	list.data = file;
+	list.data = folder;
 
 	display = gtk_widget_get_display (GTK_WIDGET (window));
 
@@ -3186,7 +3338,7 @@ ev_window_cmd_open_containing_folder (GSimpleAction *action,
 	if (error != NULL) {
 		gchar *uri;
 
-		uri = g_file_get_uri (file);
+		uri = g_file_get_uri (folder);
 		g_warning ("Could not show containing folder for \"%s\": %s",
 			   uri, error->message);
 
@@ -3196,6 +3348,8 @@ ev_window_cmd_open_containing_folder (GSimpleAction *action,
 
 	g_object_unref (context);
 	g_object_unref (app);
+	g_object_unref (folder);
+	g_object_unref (file);
 }
 
 static GKeyFile *
@@ -3777,6 +3931,8 @@ ev_window_check_document_modified (EvWindow      *ev_window,
 	if (!document)
 		return FALSE;
 
+	ev_view_sync_form_fields (EV_VIEW (priv->view));
+
 	if (EV_IS_DOCUMENT_FORMS (document) &&
 	    ev_document_forms_document_is_modified (EV_DOCUMENT_FORMS (document))) {
 		secondary_text = _("Document contains form fields that have been filled out.");
@@ -3948,8 +4104,9 @@ ev_window_save_settings (EvWindow *ev_window)
 	GSettings       *settings = priv->default_settings;
 	EvSizingMode     sizing_mode;
 
-	g_settings_set_boolean (settings, "continuous",
-				ev_document_model_get_continuous (model));
+	if (!priv->document_continuous_overrides_setting)
+		g_settings_set_boolean (settings, "continuous",
+					ev_document_model_get_continuous (model));
 	g_settings_set_boolean (settings, "dual-page",
 		                ev_document_model_get_page_layout (model) == EV_PAGE_LAYOUT_DUAL);
 	g_settings_set_boolean (settings, "dual-page-odd-left",
@@ -3993,13 +4150,13 @@ ev_window_close (EvWindow *ev_window)
 		ev_document_model_set_page (priv->model, current_page);
 	}
 
-	g_clear_signal_handler (&priv->modified_handler_id, priv->document);
-
 	if (ev_window_check_document_modified (ev_window, EV_WINDOW_ACTION_CLOSE))
 		return FALSE;
 
 	if (ev_window_check_print_queue (ev_window))
 		return FALSE;
+
+	g_clear_signal_handler (&priv->modified_handler_id, priv->document);
 
 	if (!ev_window_is_recent_view (ev_window))
 		ev_window_save_settings (ev_window);
@@ -4190,6 +4347,7 @@ ev_window_cmd_continuous (GSimpleAction *action,
 	EvWindowPrivate *priv = GET_PRIVATE (window);
 
 	ev_window_stop_presentation (window, TRUE);
+	priv->document_continuous_overrides_setting = FALSE;
 	ev_document_model_set_continuous (priv->model, g_variant_get_boolean (state));
 	g_simple_action_set_state (action, state);
 }
@@ -4456,6 +4614,91 @@ ev_window_update_fullscreen_action (EvWindow *window,
 }
 
 static void
+ev_window_cancel_fullscreen_toolbar_hide (EvWindow *window)
+{
+	EvWindowPrivate *priv = GET_PRIVATE (window);
+
+	g_clear_handle_id (&priv->fullscreen_toolbar_hide_timeout_id, g_source_remove);
+}
+
+static gboolean
+ev_window_is_fullscreen_mode (EvWindow *window)
+{
+	return gtk_window_is_fullscreen (GTK_WINDOW (window));
+}
+
+static gboolean
+ev_window_fullscreen_toolbar_tracks_motion (EvWindow *window)
+{
+	EvWindowPrivate *priv = GET_PRIVATE (window);
+
+	return ev_window_fullscreen_toolbar_tracks_pointer (ev_window_is_fullscreen_mode (window),
+							   EV_WINDOW_IS_PRESENTATION (priv));
+}
+
+static void
+ev_window_set_fullscreen_toolbar_visible (EvWindow *window,
+					  gboolean  visible)
+{
+	EvWindowPrivate *priv = GET_PRIVATE (window);
+
+	gtk_widget_set_visible (priv->toolbar, visible);
+}
+
+static void
+ev_window_hide_fullscreen_toolbar_cb (EvWindow *window)
+{
+	EvWindowPrivate *priv = GET_PRIVATE (window);
+
+	priv->fullscreen_toolbar_hide_timeout_id = 0;
+	if (!ev_window_fullscreen_toolbar_timeout_hides (ev_window_is_fullscreen_mode (window))) {
+		ev_window_set_fullscreen_toolbar_visible (window, TRUE);
+		return;
+	}
+
+	if (EV_WINDOW_IS_PRESENTATION (priv))
+		return;
+
+	ev_window_set_fullscreen_toolbar_visible (window, FALSE);
+}
+
+static void
+ev_window_schedule_fullscreen_toolbar_hide (EvWindow *window)
+{
+	EvWindowPrivate *priv = GET_PRIVATE (window);
+
+	if (!ev_window_fullscreen_toolbar_tracks_motion (window))
+		return;
+
+	ev_window_cancel_fullscreen_toolbar_hide (window);
+	priv->fullscreen_toolbar_hide_timeout_id =
+		g_timeout_add_once (EV_WINDOW_FULLSCREEN_TOOLBAR_HIDE_DELAY_MS,
+				    (GSourceOnceFunc) ev_window_hide_fullscreen_toolbar_cb,
+				    window);
+}
+
+static void
+ev_window_fullscreen_motion_cb (GtkEventControllerMotion *controller,
+				gdouble                   x,
+				gdouble                   y,
+				EvWindow                 *window)
+{
+	EvWindowPrivate *priv = GET_PRIVATE (window);
+
+	if (!ev_window_fullscreen_toolbar_tracks_motion (window))
+		return;
+
+	if (ev_window_fullscreen_pointer_reveals_toolbar (y)) {
+		ev_window_set_fullscreen_toolbar_visible (window, TRUE);
+		ev_window_cancel_fullscreen_toolbar_hide (window);
+	} else if (ev_window_fullscreen_pointer_keeps_toolbar (y, gtk_widget_get_height (priv->toolbar))) {
+		ev_window_cancel_fullscreen_toolbar_hide (window);
+	} else if (ev_window_fullscreen_pointer_hides_toolbar (y, gtk_widget_get_height (priv->toolbar))) {
+		ev_window_schedule_fullscreen_toolbar_hide (window);
+	}
+}
+
+static void
 ev_window_run_fullscreen (EvWindow *window)
 {
 	EvWindowPrivate *priv = GET_PRIVATE (window);
@@ -4470,6 +4713,7 @@ ev_window_run_fullscreen (EvWindow *window)
 	if (fullscreen_window && gtk_window_is_fullscreen (GTK_WINDOW (window)))
 		return;
 
+	ev_toolbar_action_menu_close (EV_TOOLBAR (priv->toolbar));
 	ev_window_update_fullscreen_action (window, TRUE);
 
 	adw_header_bar_set_show_end_title_buttons (ev_toolbar_get_header_bar (EV_TOOLBAR (priv->toolbar)), FALSE);
@@ -4477,6 +4721,7 @@ ev_window_run_fullscreen (EvWindow *window)
 
 	if (fullscreen_window)
 		gtk_window_fullscreen (GTK_WINDOW (window));
+	ev_window_set_fullscreen_toolbar_visible (window, FALSE);
 	gtk_widget_grab_focus (priv->view);
 
 	if (priv->metadata && !ev_window_is_empty (window)) {
@@ -4492,12 +4737,14 @@ ev_window_stop_fullscreen (EvWindow *window,
 {
 	EvWindowPrivate *priv = GET_PRIVATE (window);
 
+	ev_window_cancel_fullscreen_toolbar_hide (window);
+	ev_window_set_fullscreen_toolbar_visible (window, TRUE);
+	adw_header_bar_set_show_end_title_buttons (ev_toolbar_get_header_bar (EV_TOOLBAR (priv->toolbar)), TRUE);
+
 	if (!gtk_window_is_fullscreen (GTK_WINDOW (window)))
 		return;
 
 	ev_window_update_fullscreen_action (window, FALSE);
-
-	adw_header_bar_set_show_end_title_buttons (ev_toolbar_get_header_bar (EV_TOOLBAR (priv->toolbar)), TRUE);
 
 	if (unfullscreen_window)
 		gtk_window_unfullscreen (GTK_WINDOW (window));
@@ -4572,6 +4819,7 @@ ev_window_run_presentation (EvWindow *window)
 	if (EV_WINDOW_IS_PRESENTATION (priv))
 		return;
 
+	ev_toolbar_action_menu_close (EV_TOOLBAR (priv->toolbar));
 	ev_window_close_find_bar (window);
 
 	/* We do not want to show the annotation toolbar during
@@ -5110,7 +5358,9 @@ continuous_changed_cb (EvDocumentModel *model,
 	action = g_action_map_lookup_action (G_ACTION_MAP (ev_window), "continuous");
 	g_simple_action_set_state (G_SIMPLE_ACTION (action), g_variant_new_boolean (continuous));
 
-	if (priv->metadata && !ev_window_is_empty (ev_window))
+	if (priv->metadata &&
+	    !priv->applying_document_continuous_default &&
+	    !ev_window_is_empty (ev_window))
 		ev_metadata_set_boolean (priv->metadata, "continuous", continuous);
 }
 
@@ -5864,6 +6114,7 @@ ev_window_dispose (GObject *object)
 
 	g_clear_handle_id (&priv->setup_document_idle, g_source_remove);
 	g_clear_handle_id (&priv->loading_message_timeout, g_source_remove);
+	g_clear_handle_id (&priv->fullscreen_toolbar_hide_timeout_id, g_source_remove);
 
 	g_clear_object (&priv->monitor);
 	g_clear_pointer (&priv->title, ev_window_title_free);
@@ -5876,7 +6127,7 @@ ev_window_dispose (GObject *object)
 		g_clear_object (&priv->default_settings);
 	}
 	g_clear_object (&priv->lockdown_settings);
-	g_clear_object (&priv->document);
+	ev_window_clear_document (window);
 	g_clear_object (&priv->view);
 	g_clear_object (&priv->password_view);
 
@@ -6292,6 +6543,7 @@ launch_external_uri (EvWindow *window, EvLinkAction *action)
 	GdkDisplay *display;
 	GFile *file;
 	gchar *uri_scheme;
+	GAppInfo *app_info = NULL;
 
 	display = gtk_widget_get_display (GTK_WIDGET (window));
 	context = gdk_display_get_app_launch_context (display);
@@ -6324,6 +6576,14 @@ launch_external_uri (EvWindow *window, EvLinkAction *action)
 		}
 		ret = g_app_info_launch_default_for_uri (new_uri, G_APP_LAUNCH_CONTEXT (context), &error);
 		g_free (new_uri);
+	} else if (g_strcmp0 (uri_scheme, "mailto") == 0 &&
+		   (app_info = g_app_info_get_default_for_uri_scheme (uri_scheme)) != NULL) {
+		GList uri_list = { 0 };
+
+		uri_list.data = (gpointer) uri;
+		ret = g_app_info_launch_uris (app_info, &uri_list,
+					      G_APP_LAUNCH_CONTEXT (context),
+					      &error);
 	} else {
 		ret = g_app_info_launch_default_for_uri (uri, G_APP_LAUNCH_CONTEXT (context), &error);
 	}
@@ -6334,6 +6594,8 @@ launch_external_uri (EvWindow *window, EvLinkAction *action)
 		g_error_free (error);
 	}
 
+	g_clear_object (&app_info);
+	g_free (uri_scheme);
         g_object_unref (context);
 }
 
@@ -7112,6 +7374,12 @@ ev_window_init (EvWindow *ev_window)
 				 ev_window, 0);
 	gtk_widget_add_controller (priv->scrolled_window, controller);
 
+	controller = gtk_event_controller_motion_new ();
+	g_signal_connect_object (controller, "motion",
+				 G_CALLBACK (ev_window_fullscreen_motion_cb),
+				 ev_window, 0);
+	gtk_widget_add_controller (priv->main_box, controller);
+
 	g_signal_connect_object (priv->view, "annot-added",
 				 G_CALLBACK (view_annot_added),
 				 ev_window, 0);
@@ -7206,6 +7474,7 @@ ev_window_class_init (EvWindowClass *ev_window_class)
 	gtk_widget_class_bind_template_callback (widget_class, ev_window_button_pressed);
 	gtk_widget_class_bind_template_callback (widget_class, ev_window_drag_data_received);
 	gtk_widget_class_bind_template_callback (widget_class, view_popup_hide_cb);
+	gtk_widget_class_bind_template_callback (widget_class, zoom_action_key_pressed_cb);
 
 	/* search box */
 	gtk_widget_class_bind_template_callback (widget_class, search_started_cb);

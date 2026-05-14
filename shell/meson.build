@@ -98,6 +98,36 @@ evince = executable(
   install: true,
 )
 
+test_sidebar_thumbnails = executable(
+  'test-sidebar-thumbnails',
+  'test-sidebar-thumbnails.c',
+  include_directories: top_inc,
+  dependencies: [gtk_dep, cairo_dep, gdk_pixbuf_dep],
+  c_args: '-DEVINCE_COMPILATION',
+)
+
+test('test-sidebar-thumbnails', test_sidebar_thumbnails)
+
+test_window_fullscreen = executable(
+  'test-window-fullscreen',
+  'test-window-fullscreen.c',
+  include_directories: top_inc,
+  dependencies: glib_dep,
+  c_args: '-DEVINCE_COMPILATION',
+)
+
+test('test-window-fullscreen', test_window_fullscreen)
+
+test_window_metadata = executable(
+  'test-window-metadata',
+  'test-window-metadata.c',
+  include_directories: top_inc,
+  dependencies: glib_dep,
+  c_args: '-DEVINCE_COMPILATION',
+)
+
+test('test-window-metadata', test_window_metadata)
+
 if enable_dbus
   evinced_sources = files('ev-daemon.c')
 

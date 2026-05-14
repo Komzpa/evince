@@ -42,6 +42,10 @@ evsidebarthumbnails.page-thumbnail.inverted {
     background-color: black;
 }
 
+iconview.sidebar-thumbnails.image {
+    -gtk-icon-size: 160px;
+}
+
 evpresentationview {
     background-color: black;
 }

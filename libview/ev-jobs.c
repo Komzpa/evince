@@ -650,6 +650,8 @@ ev_job_render_cairo_run (EvJob *job)
 		return FALSE;
 	}
 
+	job_render->page_ready = !job_render->include_selection;
+
 	/* If job was cancelled during the page rendering,
 	 * we return now, so that the thread is finished ASAP
 	 */
@@ -675,6 +677,7 @@ ev_job_render_cairo_run (EvJob *job)
 							   rc,
 							   job_render->selection_style,
 							   &(job_render->selection_points));
+		job_render->page_ready = TRUE;
 	}
 
 	g_object_unref (rc);
@@ -864,6 +867,7 @@ ev_job_render_texture_run (EvJob *job)
 
 	job_render->texture = gdk_texture_new_for_surface (surface);
 	cairo_surface_destroy (surface);
+	job_render->page_ready = !job_render->include_selection;
 
 	/* If job was cancelled during the page rendering,
 	 * we return now, so that the thread is finished ASAP
@@ -895,6 +899,7 @@ ev_job_render_texture_run (EvJob *job)
 			job_render->selection = gdk_texture_new_for_surface (selection);
 			cairo_surface_destroy (selection);
 		}
+		job_render->page_ready = TRUE;
 	}
 
 	g_object_unref (rc);
